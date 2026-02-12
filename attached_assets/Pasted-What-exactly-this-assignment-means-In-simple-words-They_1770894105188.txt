@@ -1,0 +1,359 @@
+What exactly this assignment means
+
+In simple words:
+
+They want you to build an AI app that converts text → UI design automatically.
+
+Example:
+
+User types:
+
+“Create a dashboard with a sidebar, charts, and a table.”
+
+Your system should:
+
+Understand the request
+
+Generate UI code
+
+Show preview
+
+Allow edits via chat
+
+Like:
+
+👉 “Claude Code” or “v0.dev” — but controlled + deterministic.
+
+📌 From your file:
+This is the main goal → Build an AI agent that converts natural language into working UI code with live preview. 
+
+34198858-3b64-437e-8d5c-7e54d57…
+
+2️⃣ What you have to build (Core Idea)
+App concept
+
+An interface with:
+
+Chat panel (user describes UI)
+
+Code panel (generated React code)
+
+Preview panel (live UI)
+
+User flow:
+
+User types UI request
+
+AI generates UI
+
+Preview renders
+
+User asks changes
+
+AI updates code
+
+Can rollback versions
+
+3️⃣ VERY IMPORTANT RULE — Deterministic Components
+
+This is the biggest constraint ⚠️
+
+You must create a fixed UI component library.
+
+Example components you define:
+
+Button
+
+Card
+
+Input
+
+Table
+
+Modal
+
+Navbar
+
+Sidebar
+
+Chart
+
+Rules:
+
+❌ AI cannot create new components
+❌ No inline CSS
+❌ No Tailwind generation
+❌ No external UI libraries
+
+AI can only:
+
+✔ Select components
+✔ Arrange layout
+✔ Set props
+✔ Add content
+
+Why?
+
+To ensure visual consistency + deterministic output. 
+
+34198858-3b64-437e-8d5c-7e54d57…
+
+4️⃣ AI Agent Architecture (Must follow)
+
+You cannot just call GPT once.
+
+You must create 3 AI steps:
+
+1️⃣ Planner
+
+Work:
+
+Understand user intent
+
+Choose layout
+
+Select components
+
+Output structured plan
+
+Example output:
+
+{
+  "layout": "dashboard",
+  "components": ["Sidebar", "Navbar", "Table"]
+}
+
+2️⃣ Generator
+
+Work:
+
+Convert plan → React code
+
+Use only allowed components
+
+3️⃣ Explainer
+
+Work:
+
+Explain why AI chose components/layout
+
+Plain English explanation
+
+Example:
+
+“Sidebar added for navigation. Table used to display structured data.”
+
+5️⃣ Required UI Features
+
+Your app UI must include:
+
+Left Panel
+
+Chat / user input
+
+Right Panel
+
+Generated code (editable)
+
+Preview
+
+Live UI render
+
+Required actions:
+
+Generate UI
+
+Modify UI via chat
+
+Regenerate
+
+Rollback versions
+
+Live reload is preferred. 
+
+34198858-3b64-437e-8d5c-7e54d57…
+
+6️⃣ Iteration Support (Important for marks)
+
+AI must support edits like:
+
+“Make it minimal and add settings modal.”
+
+System should:
+
+✔ Modify existing code
+✔ Keep same components
+❌ Not rewrite everything
+
+This tests incremental reasoning.
+
+7️⃣ Safety & Validation
+
+You must include protections:
+
+Component whitelist check
+
+Validation before rendering
+
+Prompt injection protection
+
+Error handling
+
+Basic level is fine.
+
+8️⃣ Tech Stack (You can choose)
+
+They allow flexibility:
+
+Frontend:
+
+React / Next.js
+
+Backend:
+
+Node.js or Python
+
+AI:
+
+Any LLM API
+
+Storage:
+
+Memory or small DB
+
+9️⃣ What you must submit
+1️⃣ Working App
+
+Local or deployed
+
+2️⃣ GitHub Repo
+
+Must include:
+
+Commit history
+
+README
+
+README should explain:
+
+Architecture
+
+Agent design
+
+Prompts
+
+Components
+
+Limitations
+
+3️⃣ Deployed URL
+
+Examples:
+
+Vercel
+
+Netlify
+
+Render
+
+Local demos not accepted. 
+
+34198858-3b64-437e-8d5c-7e54d57…
+
+4️⃣ Demo Video (5–7 min)
+
+Show:
+
+UI generation
+
+Iterations
+
+Preview updates
+
+Explanations
+
+Rollback
+
+🔟 Submission method
+
+Send email to:
+
+📧 jayant@get-ryze.ai
+
+Include:
+
+GitHub link
+
+Live app URL
+
+Video link
+
+Subject:
+
+AI UI Generator Assignment – Your Name 
+
+34198858-3b64-437e-8d5c-7e54d57…
+
+🧠 What they are testing
+
+They want to evaluate:
+
+AI agent design
+
+Deterministic generation
+
+UI system thinking
+
+Iterative editing
+
+Explainable AI
+
+🪜 Step-by-Step — What YOU should do
+
+Here’s your action plan:
+
+Step 1 — Create component library
+
+Make fixed React components:
+
+Button.jsx
+
+Card.jsx
+
+Modal.jsx
+
+Table.jsx
+
+Sidebar.jsx
+
+Step 2 — Build AI planner
+
+Prompt LLM to output structured JSON plan.
+
+Step 3 — Build generator
+
+Convert JSON → React code.
+
+Step 4 — Build explainer
+
+LLM explains decisions.
+
+Step 5 — Build UI
+
+3 panels:
+
+Chat
+
+Code editor
+
+Preview iframe
+
+Step 6 — Add iteration system
+
+Store versions → enable rollback.
+
+Step 7 — Deploy app
+
+Use:
+
+Vercel / Netlify
