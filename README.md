@@ -1,94 +1,135 @@
-LIVE AT: https://prompt2-ui-tau.vercel.app/
+# Deterministic UI Builder
 
-## Asset Manager
+**Live demo → [prompt2-ui-tau.vercel.app](https://prompt2-ui-tau.vercel.app/)**
 
-Full‑stack asset management app built with an Express backend and a React (Vite) frontend.
+Describe an interface in plain English and watch it render — but without a language
+model inventing markup. Every screen this app produces is assembled from a fixed,
+audited component set, so the same prompt always yields the same UI.
 
-### Tech stack
+---
 
-- **Backend**: Node.js, Express, TypeScript
-- **Frontend**: React, Vite, TypeScript, Tailwind CSS, Radix UI
-- **DB / ORM**: PostgreSQL, Drizzle ORM
+## The idea
 
-### Prerequisites
+Most "prompt to UI" tools hand the whole problem to an LLM and hope the output
+compiles. That gives you three failure modes: the generated code breaks, the visual
+language drifts from your design system, and nobody can explain why the model chose
+what it chose.
 
-- Node.js 20+ (LTS recommended)
-- npm 10+
-- PostgreSQL database (only required if you run migrations)
+This project takes the opposite position. The prompt only decides **which approved
+components to use and how to configure them** — it never writes raw markup or CSS. The
+result is a UI generator that is reproducible, reviewable, and impossible to break with
+a bad prompt.
 
-### Getting started (local)
+That constraint is the whole point. A model that cannot freestyle cannot hallucinate a
+broken layout.
 
-1. **Clone and install**
+## How it works
 
-   ```bash
-   git clone <YOUR_GITHUB_REPO_URL>
-   cd Asset-Manager
-   npm install
-   ```
+```
+prompt ──► planner ──► validator ──► generator ──► preview
+                │                         │
+                └──────► explainer ◄──────┘
+                              │
+                         version history
+```
 
-2. **Development mode (hot reload)**
+| Stage | What it does |
+| --- | --- |
+| **Planner** | Reads the prompt and derives a structured `UIPlan` — layout, tone, component list, and content. Carries the previous plan forward so edits are incremental rather than starting over. |
+| **Validator** | Rejects any plan with an unknown component, a missing layout or tone, an empty component list, or no title. Nothing reaches the renderer unvalidated. |
+| **Generator** | Turns the approved plan into JSX, composed only from whitelisted components. |
+| **Explainer** | Writes a plain-English justification for each structural decision, so the output is auditable rather than magic. |
+| **Versioning** | Every run is snapshotted. You can diff, roll back, and keep iterating without fear. |
 
-   On **Windows / PowerShell** from the project root:
+### The component whitelist
 
-   ```powershell
-   $env:NODE_ENV = "development"
-   # Optional: choose a port (defaults to 5000)
-   # $env:PORT = "5000"
+```
+AppShell  TopNav  Sidebar  KPIGrid  LineChartCard
+BarChartCard  DataTable  SettingsModal  EmptyState
+```
 
-   npx tsx server/index.ts
-   ```
+Anything outside this set is refused at validation time with a named error. Custom CSS
+is deliberately blocked — it is the main way generated UIs drift away from a design
+system.
 
-   Then open `http://localhost:5000` (or the port you chose).
+### Layouts
 
-3. **Production build & run locally**
+Three layout families are recognised — `dashboard`, `landing`, and `settings` — each
+with four tones (`minimal`, `bold`, `playful`, `enterprise`). The planner infers both
+from the prompt, and you can pin a heading explicitly with `title:` or `name:`.
 
-   ```bash
-   # from project root
-   npm run build
-   ```
+## Tech stack
 
-   Then start the built server:
+- **Frontend:** React 18, TypeScript, Vite, Tailwind CSS, Radix UI primitives, wouter
+  for routing, TanStack Query for client state
+- **Server:** Node.js, Express, TypeScript — bundled with esbuild for fast cold starts
+- **Build:** a single `script/build.ts` that runs the Vite client build and the esbuild
+  server bundle together
+- **Hosting:** Vercel
 
-   - **On Linux/macOS**:
+The planner, validator, generator, and explainer are **pure TypeScript functions with
+no network calls and no API keys**. The pipeline is deterministic by construction, not
+by prompt engineering — which is why the demo needs no backend and no credentials to
+run.
 
-     ```bash
-     NODE_ENV=production PORT=5000 node dist/index.cjs
-     ```
-
-   - **On Windows / PowerShell**:
-
-     ```powershell
-     $env:NODE_ENV = "production"
-     $env:PORT = "5000"
-     node dist/index.cjs
-     ```
-
-   Open `http://localhost:5000`.
-
-### Database (optional)
-
-If you want to run database migrations, set `DATABASE_URL` in your environment to a valid PostgreSQL connection string, then run:
+## Running it locally
 
 ```bash
-npm run db:push
+git clone https://github.com/jayahareeswarreddy/Prompt2UI.git
+cd Prompt2UI
+npm install
 ```
 
-### Deployment
+The generation pipeline is entirely client-side, so the quickest way in is the Vite dev
+server:
 
-You can deploy this app to any Node‑capable host (e.g. Render, Fly.io, Railway).
-
-**Typical configuration (Render example):**
-
-- **Build command**: `npm install && npm run build`
-- **Start command**: `npm start`
-- **Environment variables**:
-  - `NODE_ENV=production`
-  - `PORT` – provided by the platform (the app already reads `process.env.PORT`)
-  - `DATABASE_URL` – your PostgreSQL connection string (if using the DB)
-
-After deployment, your live app will be accessible at the URL provided by your hosting platform. Add that URL to this README for grading, for example:
-
-```text
-Live demo: https://your-deployment-url.example.com
+```bash
+npm run dev:client        # http://localhost:5000
 ```
 
+To run the Express host as well:
+
+```bash
+npm run dev               # development, via tsx
+npm run build && npm start  # production bundle
+```
+
+Type-check with `npm run check`.
+
+## Project structure
+
+```
+client/src/
+  pages/ui-studio.tsx   the full pipeline — planner, validator,
+                        generator, explainer, preview, history
+  components/ui/        Radix-based component library
+server/
+  index.ts              Express host + request logging
+  static.ts             serves the built client with SPA fallback
+script/build.ts         Vite client build + esbuild server bundle
+shared/schema.ts        shared types
+```
+
+## Design notes
+
+**Why rules instead of a model?** Because the interesting problem is not generating a
+UI — it is generating one you can ship. Determinism buys reproducible output, zero
+inference cost and latency, no API key in the demo, and a validator that gives a
+precise reason whenever a plan is rejected.
+
+**Where a model would fit.** The planner is a single function with a typed input and a
+typed output, so an LLM could replace it tomorrow — emitting a `UIPlan` as a structured
+response. The validator, whitelist, and version history would stay exactly as they are,
+which is the point: the safety rails live outside the model, so swapping the planner
+never widens the blast radius.
+
+## Roadmap
+
+- [ ] Optional LLM planner behind the existing validator, via structured outputs
+- [ ] Export the generated plan as a real `.tsx` file
+- [ ] More layout families and a user-extensible component registry
+- [ ] Side-by-side version diffing
+
+## License
+
+MIT
