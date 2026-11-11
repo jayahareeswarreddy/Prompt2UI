@@ -149,6 +149,16 @@
     @apply bg-background text-foreground antialiased;
   }
 
+  /* The .dark class is on a wrapper div, not on <html>. Redefining the
+     tokens there is not enough: body's colour was already computed from
+     the light tokens and children simply inherit it, so the background
+     flipped while every piece of text stayed dark-on-dark. The element
+     that carries .dark has to restate colour itself. */
+  .dark {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+  }
+
   /* One heading scale, tight, so headings read as a set. */
   h1, h2, h3 {
     font-family: var(--font-display);

@@ -248,7 +248,7 @@ function CodeBlock({ value }: { value: string }) {
       <pre
         className={cn(
           "ui-mono ui-inset-ring ui-focus ui-surface",
-          "rounded-xl p-4 text-[12px] leading-relaxed",
+          "rounded p-4 text-[12px] leading-relaxed",
           "overflow-auto max-h-[60vh]",
         )}
         tabIndex={0}
@@ -263,18 +263,21 @@ function CodeBlock({ value }: { value: string }) {
 function PreviewMock({ model }: { model: UIModel }) {
   const plan = model.plan;
 
+  // Token-based so each tone reads in both themes, and so the four tones
+  // are actually distinguishable - the old values (white/70, /65, /60,
+  // /60) were indistinguishable in light mode and invisible in dark.
   const toneClasses =
     plan.tone === "minimal"
-      ? "bg-white/70"
+      ? "bg-card"
       : plan.tone === "enterprise"
-        ? "bg-white/60"
+        ? "bg-muted/70"
         : plan.tone === "playful"
-          ? "bg-white/65"
-          : "bg-white/60";
+          ? "bg-accent/10"
+          : "bg-primary/5";
 
   return (
     <div
-      className={cn("rounded-2xl ui-surface ui-inset-ring overflow-hidden", "min-h-[520px]")}
+      className={cn("rounded ui-surface ui-inset-ring overflow-hidden", "min-h-[520px]")}
       data-testid="preview-root"
     >
       <div className={cn("p-4 border-b", toneClasses)}>
@@ -333,7 +336,7 @@ function PreviewMock({ model }: { model: UIModel }) {
               {plan.content.kpis.map((k, idx) => (
                 <div
                   key={k.label}
-                  className="rounded-xl ui-inset-ring bg-card/70 p-3"
+                  className="rounded ui-inset-ring bg-card/70 p-3"
                   data-testid={`card-kpi-${idx}`}
                 >
                   <div className="text-xs text-muted-foreground" data-testid={`text-kpi-label-${idx}`}>
@@ -354,13 +357,13 @@ function PreviewMock({ model }: { model: UIModel }) {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4" data-testid="grid-charts">
             {plan.components.includes("LineChartCard") ? (
-              <div className="rounded-xl ui-inset-ring bg-card/70 p-3" data-testid="card-line-chart">
+              <div className="rounded ui-inset-ring bg-card/70 p-3" data-testid="card-line-chart">
                 <div className="text-sm font-medium mb-2">Trend</div>
                 <div className="h-36 rounded-lg bg-gradient-to-b from-primary/15 to-transparent" />
               </div>
             ) : null}
             {plan.components.includes("BarChartCard") ? (
-              <div className="rounded-xl ui-inset-ring bg-card/70 p-3" data-testid="card-bar-chart">
+              <div className="rounded ui-inset-ring bg-card/70 p-3" data-testid="card-bar-chart">
                 <div className="text-sm font-medium mb-2">Breakdown</div>
                 <div className="h-36 rounded-lg bg-gradient-to-b from-accent/35 to-transparent" />
               </div>
@@ -368,7 +371,7 @@ function PreviewMock({ model }: { model: UIModel }) {
           </div>
 
           {plan.components.includes("DataTable") && plan.content.table ? (
-            <div className="rounded-xl ui-inset-ring bg-card/70 p-3" data-testid="card-table">
+            <div className="rounded ui-inset-ring bg-card/70 p-3" data-testid="card-table">
               <div className="flex items-center justify-between mb-3">
                 <div className="text-sm font-medium">Spec</div>
                 <Badge variant="secondary" data-testid="badge-safe">
@@ -403,7 +406,7 @@ function PreviewMock({ model }: { model: UIModel }) {
           ) : null}
 
           {plan.components.includes("EmptyState") ? (
-            <div className="mt-4 rounded-xl ui-inset-ring bg-card/60 p-6 text-center" data-testid="empty-state">
+            <div className="mt-4 rounded ui-inset-ring bg-card/60 p-6 text-center" data-testid="empty-state">
               <div className="ui-title text-xl">No data yet</div>
               <div className="text-sm text-muted-foreground mt-1">Ask for a table or metrics in chat.</div>
             </div>
@@ -454,7 +457,7 @@ function VersionDialog({
                 <button
                   key={v.id}
                   className={cn(
-                    "w-full text-left rounded-xl p-3 ui-inset-ring",
+                    "w-full text-left rounded p-3 ui-inset-ring",
                     "hover:bg-muted/60 transition-colors",
                   )}
                   onClick={() => onRestore(v.id)}
@@ -774,7 +777,7 @@ export default function UIStudio() {
                       <div
                         key={m.id}
                         className={cn(
-                          "rounded-2xl p-3 ui-inset-ring",
+                          "rounded p-3 ui-inset-ring",
                           m.role === "user" ? "bg-primary/8" : "bg-card/60",
                         )}
                         data-testid={`message-${m.role}-${i}`}
@@ -838,12 +841,12 @@ export default function UIStudio() {
                   </div>
 
                   {error ? (
-                    <div className="rounded-xl bg-destructive/10 text-destructive px-3 py-2 text-sm" data-testid="status-error">
+                    <div className="rounded bg-destructive/10 text-destructive px-3 py-2 text-sm" data-testid="status-error">
                       {error}
                     </div>
                   ) : null}
 
-                  <div className="rounded-xl bg-muted/50 px-3 py-2 text-xs text-muted-foreground" data-testid="text-safety">
+                  <div className="rounded bg-muted/50 px-3 py-2 text-xs text-muted-foreground" data-testid="text-safety">
                     Safety: component whitelist + plan validation before rendering.
                   </div>
                 </div>
@@ -964,7 +967,7 @@ export default function UIStudio() {
           </Card>
         </div>
 
-        <div className="mt-6 rounded-2xl ui-surface ui-inset-ring p-5" data-testid="card-footer">
+        <div className="mt-6 rounded ui-surface ui-inset-ring p-5" data-testid="card-footer">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
               <div className="ui-title text-xl">Try prompts like</div>
