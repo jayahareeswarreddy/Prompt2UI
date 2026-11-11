@@ -402,8 +402,7 @@ const COMPONENT_VOCAB: Array<{ component: ComponentName; terms: string[] }> = [
     terms: [
       "line chart", "line graph", "trend", "trends", "over time", "time series",
       "timeseries", "growth", "history chart", "sparkline", "trajectory",
-      "charts", "chart", "graphs", "graph", "plot", "visualisation",
-      "visualization", "analytics chart",
+
     ],
   },
   {
@@ -460,6 +459,23 @@ const STOP_WORDS = new Set(
 );
 
 const NEGATION = /\b(no|not|without|hide|remove|exclude|drop|omit|skip)\b/;
+
+/**
+ * Every single word appearing anywhere in the vocabulary.
+ *
+ * Without this the "ignored" list named words it had in fact acted on: a
+ * prompt saying "a trend chart" matches on "trend", so "chart" looked
+ * unrecognised even though it had just produced a chart.
+ */
+const VOCAB_WORDS: Set<string> = new Set(
+  [
+    ...COMPONENT_VOCAB.flatMap((v) => v.terms),
+    ...TONE_VOCAB.flatMap((v) => v.terms),
+    ...LAYOUT_VOCAB.flatMap((v) => v.terms),
+  ]
+    .flatMap((term) => term.split(" "))
+    .concat(["tone", "kpis", "kpi", "chart", "charts", "title", "name", "called"]),
+);
 
 // ---------------------------------------------------------------------------
 // Planner
@@ -557,6 +573,16 @@ export function planner(userText: string, prev?: UIPlan): { plan: UIPlan; trace:
   const bodyComponents: ComponentName[] = [
     "KPIGrid", "LineChartCard", "BarChartCard", "DataTable", "EmptyState",
   ];
+  // "chart" on its own names no particular card. Resolve it only after the
+  // specific ones have had their turn, so "a bar chart" does not also
+  // produce a line chart.
+  if (/ (charts|chart|graphs|graph|plot|visualisations?|visualizations?)[ ,.]/.test(text)) {
+    if (!chosen.has("BarChartCard") && !chosen.has("LineChartCard")) {
+      chosen.add("LineChartCard");
+      understood.push({ term: "chart", effect: "add LineChartCard" });
+    }
+  }
+
   // A dashboard is a set of numbers first; asking for "a dashboard with a
   // table" should still produce the numbers unless they were refused.
   if (layout === "dashboard" && !chosen.has("KPIGrid") && !removed.includes("KPIGrid")) {
@@ -600,6 +626,7 @@ export function planner(userText: string, prev?: UIPlan): { plan: UIPlan; trace:
         .filter((w) => w.length > 2)
         .filter((w) => !STOP_WORDS.has(w))
         .filter((w) => !consumed.some((c) => c.includes(w)))
+        .filter((w) => !VOCAB_WORDS.has(w))
         .filter((w) => !domain.match.test(` ${w} `)),
     ),
   ).slice(0, 12);
