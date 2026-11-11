@@ -16,6 +16,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Bot,
+  Terminal,
   Code2,
   Eye,
   FileClock,
@@ -263,6 +264,12 @@ function CodeBlock({ value }: { value: string }) {
 function PreviewMock({ model }: { model: UIModel }) {
   const plan = model.plan;
 
+  // AppShell and TopNav draw chrome, not content. A plan holding only
+  // those rendered a completely blank panel, which is what made a
+  // restored early version look like a broken rollback.
+  const BODY_COMPONENTS = ["KPIGrid", "LineChartCard", "BarChartCard", "DataTable", "EmptyState"];
+  const hasBody = plan.components.some((c) => BODY_COMPONENTS.includes(c));
+
   // Token-based so each tone reads in both themes, and so the four tones
   // are actually distinguishable - the old values (white/70, /65, /60,
   // /60) were indistinguishable in light mode and invisible in dark.
@@ -302,6 +309,19 @@ function PreviewMock({ model }: { model: UIModel }) {
           </div>
         </div>
       </div>
+
+      {plan.components.includes("TopNav") ? (
+        <div
+          className="flex items-center gap-2 border-b px-4 py-2.5"
+          data-testid="panel-topnav"
+        >
+          <span className="h-2.5 w-2.5 rounded-full bg-primary" aria-hidden="true" />
+          <span className="text-xs font-medium">{plan.content.title}</span>
+          <span className="ml-auto ui-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            {plan.components.length} components
+          </span>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-12">
         {plan.components.includes("Sidebar") ? (
@@ -412,6 +432,19 @@ function PreviewMock({ model }: { model: UIModel }) {
             </div>
           ) : null}
 
+          {!hasBody ? (
+            <div
+              className="rounded ui-inset-ring bg-muted/40 p-8 text-center"
+              data-testid="preview-no-body"
+            >
+              <div className="text-sm font-medium">This plan is only a shell</div>
+              <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+                It holds {plan.components.join(" and ")} — chrome, but nothing to put inside.
+                Ask for a sidebar, charts or a table to fill it.
+              </p>
+            </div>
+          ) : null}
+
           {plan.components.includes("SettingsModal") ? (
             <div className="mt-4" data-testid="settings-inline">
               <Button variant="secondary" data-testid="button-open-settings">
@@ -427,13 +460,19 @@ function PreviewMock({ model }: { model: UIModel }) {
 
 function VersionDialog({
   versions,
+  currentId,
   onRestore,
 }: {
-  versions: Array<{ id: string; label: string; ts: number }>;
+  versions: Array<{ id: string; label: string; prompt: string; ts: number }>;
+  currentId: string;
   onRestore: (id: string) => void;
 }) {
+  // Uncontrolled, the dialog stayed open over the preview after a restore,
+  // so the restore looked like it had done nothing.
+  const [open, setOpen] = useState(false);
+
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="secondary" className="gap-2" data-testid="button-versions">
           <FileClock className="h-4 w-4" />
@@ -444,7 +483,9 @@ function VersionDialog({
         <DialogHeader>
           <DialogTitle>Rollback</DialogTitle>
         </DialogHeader>
-        <div className="text-sm text-muted-foreground">Restore a previous generated version.</div>
+        <div className="text-sm text-muted-foreground">
+          Every generation is kept. Restoring one replaces the current preview and code.
+        </div>
         <Separator className="my-3" />
         <div className="space-y-2 max-h-[50vh] overflow-auto" data-testid="list-versions">
           {versions.length === 0 ? (
@@ -460,19 +501,34 @@ function VersionDialog({
                     "w-full text-left rounded p-3 ui-inset-ring",
                     "hover:bg-muted/60 transition-colors",
                   )}
-                  onClick={() => onRestore(v.id)}
+                  onClick={() => {
+                    onRestore(v.id);
+                    setOpen(false);
+                  }}
                   data-testid={`button-restore-${v.id}`}
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="font-medium" data-testid={`text-version-label-${v.id}`}>
-                        {v.label}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="ui-mono text-xs text-muted-foreground tabular-nums">
+                          v{Number(v.id) + 1}
+                        </span>
+                        <span className="font-medium" data-testid={`text-version-label-${v.id}`}>
+                          {v.label}
+                        </span>
+                      </div>
+                      <div className="mt-1 truncate text-sm text-muted-foreground" title={v.prompt}>
+                        {v.prompt}
                       </div>
                       <div className="text-xs text-muted-foreground" data-testid={`text-version-ts-${v.id}`}>
-                        {new Date(v.ts).toLocaleString()}
+                        {new Date(v.ts).toLocaleTimeString()}
                       </div>
                     </div>
-                    <Badge variant="outline">Restore</Badge>
+                    {v.id === currentId ? (
+                      <Badge data-testid={`badge-current-${v.id}`}>Current</Badge>
+                    ) : (
+                      <Badge variant="outline">Restore</Badge>
+                    )}
                   </div>
                 </button>
               ))
@@ -482,6 +538,32 @@ function VersionDialog({
     </Dialog>
   );
 }
+
+type VersionEntry = { model: UIModel; ts: number; prompt: string };
+
+/** Starting points, so the first run is one click rather than a blank box. */
+const PROMPT_EXAMPLES: { label: string; prompt: string }[] = [
+  {
+    label: "Analytics dashboard",
+    prompt: "Create a dashboard with a sidebar, KPIs, a line chart and a table. Keep it minimal.",
+  },
+  {
+    label: "Revenue report",
+    prompt: "Enterprise dashboard with a bar chart for revenue, KPIs and a sales table.",
+  },
+  {
+    label: "Settings screen",
+    prompt: "A settings page with a modal for preferences and a table of options.",
+  },
+  {
+    label: "Landing page",
+    prompt: "A playful landing page with a hero and a pricing table. title: Prompt2UI",
+  },
+  {
+    label: "Empty state",
+    prompt: "Dashboard with a sidebar but no data yet, show an empty state.",
+  },
+];
 
 type StageState = "idle" | "running" | "ok" | "blocked";
 
@@ -589,7 +671,12 @@ export default function UIStudio() {
     return { plan: safePlan, code, explanation };
   });
 
-  const [versions, setVersions] = useState<UIModel[]>([{ ...model }]);
+  // A version used to be a bare model, so the history showed identical
+  // labels and timestamps invented from the first chat message.
+  const [versions, setVersions] = useState<VersionEntry[]>(() => [
+    { model, ts: now(), prompt: "Starting plan" },
+  ]);
+  const [currentVersion, setCurrentVersion] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [stages, setStages] = useState<Stages>(IDLE_STAGES);
 
@@ -629,7 +716,17 @@ export default function UIStudio() {
     };
 
     setModel(nextModel);
-    setVersions((v) => [...v, nextModel]);
+    setVersions((v) => {
+      // An unchanged plan is not a new version; the history filled up with
+      // duplicates that were impossible to tell apart.
+      const last = v[v.length - 1];
+      if (last && JSON.stringify(last.model.plan) === JSON.stringify(nextModel.plan)) {
+        setCurrentVersion(v.length - 1);
+        return v;
+      }
+      setCurrentVersion(v.length);
+      return [...v, { model: nextModel, ts: now(), prompt: userText.trim() || "(empty prompt)" }];
+    });
 
     // Every stage below already ran synchronously and these are their real
     // outcomes; the delays only let the eye follow the order.
@@ -663,16 +760,23 @@ export default function UIStudio() {
 
   const versionItems = versions.map((v, idx) => ({
     id: String(idx),
-    label: `${v.plan.layout} • ${v.plan.tone} • ${v.plan.components.length} components`,
-    ts: messages[0]?.ts + idx * 1000,
+    label: `${v.model.plan.layout} · ${v.model.plan.tone} · ${v.model.plan.components.length} components`,
+    prompt: v.prompt,
+    ts: v.ts,
   }));
 
   function restoreByIndex(indexId: string) {
     const idx = Number(indexId);
-    const v = versions[idx];
-    if (!v) return;
-    setModel(v);
-    pushMessage("assistant", `Restored version #${idx + 1}.`);
+    const entry = versions[idx];
+    if (!entry) return;
+    setModel(entry.model);
+    setCurrentVersion(idx);
+    setError(null);
+    setStages({ planner: "ok", validator: "ok", generator: "ok", explainer: "ok" });
+    pushMessage(
+      "assistant",
+      `Restored v${idx + 1} — ${entry.model.plan.layout}, ${entry.model.plan.components.length} components.`,
+    );
   }
 
   return (
@@ -719,7 +823,11 @@ export default function UIStudio() {
                   {theme === "light" ? "Dark" : "Light"}
                 </Button>
 
-                <VersionDialog versions={versionItems} onRestore={(id) => restoreByIndex(id)} />
+                <VersionDialog
+                  versions={versionItems}
+                  currentId={String(currentVersion)}
+                  onRestore={(id) => restoreByIndex(id)}
+                />
               </div>
 
               {/* The constraint is the product. Showing the whole allowed
@@ -761,8 +869,8 @@ export default function UIStudio() {
               <ResizablePanel defaultSize={32} minSize={24} className="p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
-                    <Bot className="h-4 w-4 text-muted-foreground" />
-                    <div className="text-sm font-medium">Chat</div>
+                    <Terminal className="h-4 w-4 text-muted-foreground" />
+                    <div className="text-sm font-medium">Prompt</div>
                   </div>
                   <Badge variant="secondary" className="gap-1" data-testid="badge-deterministic">
                     <ShieldCheck className="h-3 w-3" /> deterministic
@@ -783,7 +891,7 @@ export default function UIStudio() {
                         data-testid={`message-${m.role}-${i}`}
                       >
                         <div className="flex items-center justify-between gap-3">
-                          <div className="text-xs text-muted-foreground">{m.role === "user" ? "You" : "Agent"}</div>
+                          <div className="text-xs text-muted-foreground">{m.role === "user" ? "You" : "Planner"}</div>
                           <div className="text-[11px] text-muted-foreground">{new Date(m.ts).toLocaleTimeString()}</div>
                         </div>
                         <div className="text-sm mt-2 whitespace-pre-wrap">{m.content}</div>
@@ -800,6 +908,24 @@ export default function UIStudio() {
                     className="min-h-[88px] resize-none"
                     data-testid="input-prompt"
                   />
+
+                  <div className="flex flex-wrap gap-1.5" data-testid="list-examples">
+                    {PROMPT_EXAMPLES.map((ex) => (
+                      <button
+                        key={ex.label}
+                        type="button"
+                        className="rounded-sm ui-inset-ring bg-card px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        onClick={() => {
+                          setPrompt(ex.prompt);
+                          pushMessage("user", ex.prompt);
+                          runAgent(ex.prompt, "generate");
+                        }}
+                        data-testid={`button-example-${ex.label.toLowerCase().replace(/\s+/g, "-")}`}
+                      >
+                        {ex.label}
+                      </button>
+                    ))}
+                  </div>
 
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
@@ -996,9 +1122,11 @@ export default function UIStudio() {
           </div>
         </div>
 
-        <div className="mt-10 text-xs text-muted-foreground" data-testid="text-disclaimer">
-          This is a frontend-only mockup that demonstrates the deterministic agent loop. To connect a real LLM, code
-          sandboxing, and persistence, you’d typically add a backend.
+        <div className="mt-10 rounded ui-inset-ring bg-muted/40 p-4 text-xs leading-relaxed text-muted-foreground" data-testid="text-disclaimer">
+          <strong className="text-foreground">No model is involved.</strong> The planner is a set of
+          rules that reads your prompt for known words and maps them onto the component whitelist —
+          there is no LLM, no API key and no network call. That is the point: the same prompt
+          produces the same interface every time, and the output can be audited line by line.
         </div>
       </div>
     </div>
