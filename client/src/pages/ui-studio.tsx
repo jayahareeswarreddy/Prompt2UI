@@ -11,6 +11,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import {
+  ALLOWED_COMPONENTS,
+  planner,
+  validatePlan,
+  type PlanTrace,
+  type UIPlan,
+} from "@/lib/planner";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   ArrowLeft,
@@ -36,45 +43,12 @@ type ChatMessage = {
   ts: number;
 };
 
-type UIPlan = {
-  layout: "dashboard" | "landing" | "settings";
-  tone: "minimal" | "bold" | "playful" | "enterprise";
-  components: Array<
-    | "AppShell"
-    | "TopNav"
-    | "Sidebar"
-    | "KPIGrid"
-    | "LineChartCard"
-    | "BarChartCard"
-    | "DataTable"
-    | "SettingsModal"
-    | "EmptyState"
-  >;
-  content: {
-    title: string;
-    subtitle?: string;
-    kpis?: Array<{ label: string; value: string; delta?: string }>;
-    table?: { columns: string[]; rows: string[][] };
-  };
-};
-
 type UIModel = {
   plan: UIPlan;
   code: string;
   explanation: string;
 };
 
-const ALLOWED_COMPONENTS = new Set<string>([
-  "AppShell",
-  "TopNav",
-  "Sidebar",
-  "KPIGrid",
-  "LineChartCard",
-  "BarChartCard",
-  "DataTable",
-  "SettingsModal",
-  "EmptyState",
-]);
 
 function uid(prefix: string) {
   return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
@@ -86,115 +60,6 @@ function now() {
 
 function clampText(s: string, max = 5000) {
   return s.length > max ? s.slice(0, max) + "…" : s;
-}
-
-function validatePlan(plan: UIPlan): { ok: true } | { ok: false; error: string } {
-  if (!plan?.layout || !plan.tone) return { ok: false, error: "Plan missing layout/tone." };
-  if (!Array.isArray(plan.components) || plan.components.length === 0)
-    return { ok: false, error: "Plan needs at least one component." };
-  for (const c of plan.components) {
-    if (!ALLOWED_COMPONENTS.has(c)) return { ok: false, error: `Component not allowed: ${c}` };
-  }
-  if (!plan.content?.title) return { ok: false, error: "Plan missing title." };
-  return { ok: true };
-}
-
-function planner(userText: string, prev?: UIPlan): UIPlan {
-  const t = userText.toLowerCase();
-
-  const wantDashboard = /dashboard|kpi|analytics|chart|table|sidebar/.test(t);
-  const wantSettings = /settings|preferences|modal/.test(t);
-  const wantLanding = /landing|hero|marketing|pricing/.test(t);
-
-  const tone: UIPlan["tone"] = /minimal|clean|simple/.test(t)
-    ? "minimal"
-    : /playful|fun|bright/.test(t)
-      ? "playful"
-      : /enterprise|professional|corporate/.test(t)
-        ? "enterprise"
-        : "bold";
-
-  const layout: UIPlan["layout"] = wantLanding ? "landing" : wantSettings ? "settings" : "dashboard";
-
-  const base: UIPlan = {
-    layout,
-    tone,
-    components: ["AppShell", "TopNav"],
-    content: {
-      title: "Deterministic UI Builder",
-      subtitle: "Planner → Generator → Explainer (fixed components, safe output).",
-      kpis: [
-        { label: "Iterations", value: "7", delta: "+2" },
-        { label: "Latency", value: "820ms", delta: "-12%" },
-        { label: "Coverage", value: "92%", delta: "+4%" },
-        { label: "Risk", value: "Low", delta: "Stable" },
-      ],
-      table: {
-        columns: ["Component", "Purpose", "Status"],
-        rows: [
-          ["Sidebar", "Navigation", "Allowed"],
-          ["DataTable", "Structured data", "Allowed"],
-          ["SettingsModal", "Safe edits", "Allowed"],
-          ["Custom CSS", "Determinism", "Blocked"],
-        ],
-      },
-    },
-  };
-
-  const plan = prev ? structuredClone(prev) : base;
-  plan.layout = layout;
-  plan.tone = tone;
-
-  const next = new Set(plan.components);
-
-  if (wantDashboard || /chart|table|sidebar/.test(t)) {
-    next.add("Sidebar");
-    next.add("KPIGrid");
-    next.add("LineChartCard");
-    next.add("DataTable");
-  }
-
-  if (/bar chart|bars|revenue|sales/.test(t)) {
-    next.add("BarChartCard");
-  }
-
-  if (wantSettings) {
-    next.add("SettingsModal");
-  }
-
-  if (/empty|no data|blank/.test(t)) {
-    next.add("EmptyState");
-  }
-
-  if (/(title:|name:)/.test(t)) {
-    const m = userText.match(/(?:title:|name:)\s*(.+)$/i);
-    if (m?.[1]) plan.content.title = clampText(m[1].trim(), 80);
-  }
-
-  plan.components = Array.from(next) as UIPlan["components"];
-
-  if (plan.layout === "landing") {
-    plan.content.subtitle = "Describe a UI in chat, and watch it render deterministically.";
-    plan.content.kpis = undefined;
-    plan.content.table = {
-      columns: ["Feature", "Why it matters"],
-      rows: [
-        ["Fixed components", "Consistent visuals + controllable output"],
-        ["Planner/Generator/Explainer", "Traceable, explainable changes"],
-        ["Rollback", "Fast iteration without fear"],
-      ],
-    };
-    plan.components = ["AppShell", "TopNav", "DataTable"];
-  }
-
-  if (plan.layout === "settings") {
-    plan.content.subtitle = "Ship safe customization without letting the model freestyle UI.";
-    next.add("SettingsModal");
-    next.add("DataTable");
-    plan.components = Array.from(next) as UIPlan["components"];
-  }
-
-  return plan;
 }
 
 function generator(plan: UIPlan): { code: string } {
@@ -328,7 +193,7 @@ function PreviewMock({ model }: { model: UIModel }) {
           <div className="col-span-12 md:col-span-3 border-r p-3" data-testid="panel-sidebar">
             <div className="text-xs text-muted-foreground mb-2">Navigation</div>
             <div className="space-y-1">
-              {["Overview", "Reports", "Alerts", "Settings"].map((x) => (
+              {(plan.content.nav ?? ["Overview", "Reports", "Alerts", "Settings"]).map((x) => (
                 <button
                   key={x}
                   className={cn(
@@ -378,14 +243,14 @@ function PreviewMock({ model }: { model: UIModel }) {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4" data-testid="grid-charts">
             {plan.components.includes("LineChartCard") ? (
               <div className="rounded ui-inset-ring bg-card/70 p-3" data-testid="card-line-chart">
-                <div className="text-sm font-medium mb-2">Trend</div>
-                <div className="h-36 rounded-lg bg-gradient-to-b from-primary/15 to-transparent" />
+                <div className="text-sm font-medium mb-2">{plan.content.lineTitle ?? "Trend"}</div>
+                <div className="h-36 rounded bg-gradient-to-b from-primary/20 to-transparent" />
               </div>
             ) : null}
             {plan.components.includes("BarChartCard") ? (
               <div className="rounded ui-inset-ring bg-card/70 p-3" data-testid="card-bar-chart">
-                <div className="text-sm font-medium mb-2">Breakdown</div>
-                <div className="h-36 rounded-lg bg-gradient-to-b from-accent/35 to-transparent" />
+                <div className="text-sm font-medium mb-2">{plan.content.barTitle ?? "Breakdown"}</div>
+                <div className="h-36 rounded bg-gradient-to-b from-accent/35 to-transparent" />
               </div>
             ) : null}
           </div>
@@ -658,14 +523,14 @@ export default function UIStudio() {
   );
 
   const initialPlan = useMemo<UIPlan>(
-    () => planner("Create a dashboard with a sidebar, charts, and a table. Make it minimal.", undefined),
+    () => planner("A minimal dashboard with a sidebar, KPIs, a trend chart and a table.").plan,
     [],
   );
 
   const [model, setModel] = useState<UIModel>(() => {
     const plan = initialPlan;
     const validation = validatePlan(plan);
-    const safePlan = validation.ok ? plan : planner("Create a dashboard", undefined);
+    const safePlan = validation.ok ? plan : planner("dashboard").plan;
     const code = generator(safePlan).code;
     const explanation = explainer(safePlan);
     return { plan: safePlan, code, explanation };
@@ -679,6 +544,7 @@ export default function UIStudio() {
   const [currentVersion, setCurrentVersion] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [stages, setStages] = useState<Stages>(IDLE_STAGES);
+  const [trace, setTrace] = useState<PlanTrace | null>(null);
 
   const chatViewportRef = useRef<HTMLDivElement | null>(null);
 
@@ -695,7 +561,8 @@ export default function UIStudio() {
     setError(null);
     setStages({ ...IDLE_STAGES, planner: "running" });
 
-    const nextPlan = planner(userText, mode === "modify" ? model.plan : undefined);
+    const { plan: nextPlan, trace } = planner(userText, mode === "modify" ? model.plan : undefined);
+    setTrace(trace);
     const validation = validatePlan(nextPlan);
 
     if (!validation.ok) {
@@ -751,10 +618,19 @@ export default function UIStudio() {
       330,
     );
 
+    const removedNote = trace.removed.length ? ` Removed: ${trace.removed.join(", ")}.` : "";
     pushMessage(
       "assistant",
-      `Plan: ${nextPlan.layout} • tone: ${nextPlan.tone} • components: ${nextPlan.components.join(", ")}`,
+      `${nextPlan.layout} layout, ${nextPlan.tone} tone, subject "${nextPlan.domain}".
+` +
+        `Components: ${nextPlan.components.join(", ")}.${removedNote}`,
     );
+    if (trace.ignored.length) {
+      pushMessage(
+        "assistant",
+        `I did not act on: ${trace.ignored.join(", ")}. Those words are not in the planner's vocabulary.`,
+      );
+    }
     pushMessage("assistant", nextExplanation);
   }
 
@@ -836,11 +712,11 @@ export default function UIStudio() {
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="ui-label">Component whitelist</span>
                   <span className="ui-mono text-xs tabular-nums text-muted-foreground">
-                    {ALLOWED_COMPONENTS.size} allowed
+                    {ALLOWED_COMPONENTS.length} allowed
                   </span>
                 </div>
                 <ul className="mt-3 flex flex-wrap gap-1.5">
-                  {Array.from(ALLOWED_COMPONENTS).map((name) => (
+                  {ALLOWED_COMPONENTS.map((name) => (
                     <li
                       key={name}
                       className="ui-mono rounded-sm bg-muted px-1.5 py-1 text-[11px] text-foreground/80"
