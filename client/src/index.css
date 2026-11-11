@@ -40,78 +40,100 @@
   --font-display: var(--font-display);
 }
 
+/* ---------------------------------------------------------------------
+   Palette: instrument, not interface-chrome.
+
+   The product's claim is that the same prompt yields the same UI, every
+   time. So the page is dressed like measuring equipment - warm paper,
+   deep teal ink, one signal amber reserved for the action that actually
+   runs the pipeline. Nothing decorative competes with the preview, which
+   is the only thing on screen the user came to look at.
+
+   No violet: it is the default accent of every generated template on the
+   web, and this project's whole argument is that it is not generated.
+   --------------------------------------------------------------------- */
+
 :root {
-  --background: 228 32% 98%;
-  --foreground: 226 34% 12%;
+  --background: 36 30% 97%;
+  --foreground: 200 28% 10%;
 
   --card: 0 0% 100%;
-  --card-foreground: 226 34% 12%;
+  --card-foreground: 200 28% 10%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 226 34% 12%;
+  --popover-foreground: 200 28% 10%;
 
-  --primary: 262 83% 58%;
+  /* Deep teal. Carries buttons, focus and the pipeline rail. */
+  --primary: 190 96% 21%;
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 228 26% 94%;
-  --secondary-foreground: 226 34% 14%;
+  --secondary: 36 22% 92%;
+  --secondary-foreground: 200 28% 14%;
 
-  --muted: 228 24% 95%;
-  --muted-foreground: 224 14% 40%;
+  --muted: 36 20% 94%;
+  --muted-foreground: 200 10% 38%;
 
-  --accent: 198 88% 90%;
-  --accent-foreground: 226 34% 12%;
+  /* Signal amber, reserved for running the pipeline. Used once. */
+  --accent: 24 92% 46%;
+  --accent-foreground: 0 0% 100%;
 
-  --destructive: 0 84% 60%;
+  --destructive: 4 72% 43%;
   --destructive-foreground: 0 0% 100%;
 
-  --border: 228 19% 87%;
-  --input: 228 19% 83%;
-  --ring: 262 83% 58%;
+  --success: 158 78% 27%;
+  --success-foreground: 0 0% 100%;
 
-  --chart-1: 262 83% 58%;
-  --chart-2: 196 92% 45%;
-  --chart-3: 28 95% 56%;
-  --chart-4: 151 66% 42%;
-  --chart-5: 335 78% 58%;
+  --border: 36 16% 86%;
+  --input: 36 16% 78%;
+  --ring: 190 96% 21%;
 
-  --radius: 0.9rem;
+  --chart-1: 190 96% 21%;
+  --chart-2: 24 92% 46%;
+  --chart-3: 158 78% 27%;
+  --chart-4: 202 70% 38%;
+  --chart-5: 38 80% 42%;
+
+  /* Sharp. A developer tool is a precision instrument, not a consumer app. */
+  --radius: 0.25rem;
 
   --font-sans: "DM Sans", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
     "Apple Color Emoji", "Segoe UI Emoji";
-  --font-display: "Fraunces", ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  --font-display: "DM Sans", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", monospace;
 }
 
 .dark {
-  --background: 230 22% 9%;
-  --foreground: 228 20% 96%;
+  --background: 200 30% 7%;
+  --foreground: 36 24% 94%;
 
-  --card: 230 22% 11%;
-  --card-foreground: 228 20% 96%;
+  --card: 200 26% 10%;
+  --card-foreground: 36 24% 94%;
 
-  --popover: 230 22% 11%;
-  --popover-foreground: 228 20% 96%;
+  --popover: 200 26% 10%;
+  --popover-foreground: 36 24% 94%;
 
-  --primary: 262 86% 68%;
-  --primary-foreground: 230 22% 10%;
+  --primary: 184 78% 50%;
+  --primary-foreground: 200 30% 7%;
 
-  --secondary: 230 18% 16%;
-  --secondary-foreground: 228 20% 96%;
+  --secondary: 200 20% 15%;
+  --secondary-foreground: 36 24% 94%;
 
-  --muted: 230 18% 16%;
-  --muted-foreground: 224 12% 70%;
+  --muted: 200 20% 15%;
+  --muted-foreground: 200 10% 66%;
 
-  --accent: 196 66% 18%;
-  --accent-foreground: 228 20% 96%;
+  --accent: 26 94% 56%;
+  --accent-foreground: 200 30% 7%;
 
-  --destructive: 0 78% 56%;
+  --destructive: 4 76% 56%;
   --destructive-foreground: 0 0% 100%;
 
-  --border: 230 16% 20%;
-  --input: 230 16% 22%;
-  --ring: 262 86% 68%;
+  --success: 158 64% 46%;
+  --success-foreground: 200 30% 7%;
+
+  --border: 200 16% 19%;
+  --input: 200 16% 24%;
+  --ring: 184 78% 50%;
 }
 
 @layer base {
@@ -126,51 +148,114 @@
   body {
     @apply bg-background text-foreground antialiased;
   }
+
+  /* One heading scale, tight, so headings read as a set. */
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.025em;
+    font-weight: 600;
+  }
 }
 
 @layer utilities {
+  /* Engineering paper: a measured grid, not a decorative texture. */
   .ui-grid {
     background-image:
-      radial-gradient(circle at 1px 1px, hsl(var(--foreground) / 0.06) 1px, transparent 0);
-    background-size: 22px 22px;
+      linear-gradient(hsl(var(--foreground) / 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--foreground) / 0.035) 1px, transparent 1px);
+    background-size: 28px 28px;
   }
 
-  .ui-noise {
-    background-image:
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.75' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.14'/%3E%3C/svg%3E");
-    background-size: 220px 220px;
-    mix-blend-mode: overlay;
-    pointer-events: none;
-  }
-
+  /* Flat. The old version stacked a gradient and two shadows on every
+     panel, which made the page read as plastic. */
   .ui-surface {
-    background:
-      linear-gradient(180deg, hsl(var(--card) / 0.95), hsl(var(--card) / 0.86));
-    box-shadow:
-      0 1px 0 hsl(var(--foreground) / 0.05),
-      0 12px 32px hsl(var(--foreground) / 0.08);
+    background: hsl(var(--card));
   }
 
   .ui-inset-ring {
-    box-shadow: inset 0 0 0 1px hsl(var(--border) / 0.85);
+    box-shadow: inset 0 0 0 1px hsl(var(--border));
   }
 
   .ui-title {
     font-family: var(--font-display);
-    letter-spacing: -0.02em;
+    letter-spacing: -0.03em;
+    font-weight: 600;
   }
 
   .ui-mono {
     font-family: var(--font-mono);
+    font-feature-settings: "ss01", "zero";
+  }
+
+  .ui-label {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground));
   }
 
   .ui-focus {
     outline: none;
   }
 
-  .ui-focus:focus-visible {
-    box-shadow:
-      0 0 0 3px hsl(var(--ring) / 0.25),
-      0 0 0 1px hsl(var(--ring) / 0.85);
+  .ui-focus:focus-visible,
+  :where(button, a, input, textarea, [tabindex]):focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  /* Hover answers the pointer: a lift on cards, a step on buttons,
+     a press on click. */
+  .ui-lift {
+    transition: transform 180ms cubic-bezier(.4, 0, .2, 1),
+      box-shadow 180ms cubic-bezier(.4, 0, .2, 1);
+  }
+
+  .ui-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px hsl(var(--foreground) / 0.08);
+  }
+
+  .ui-press {
+    transition: transform 120ms cubic-bezier(.4, 0, .2, 1);
+  }
+
+  .ui-press:active {
+    transform: translateY(1px) scale(0.995);
+  }
+
+  /* The hero states its claim once, on load. */
+  @keyframes ui-enter {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  [data-enter] > * {
+    animation: ui-enter 520ms cubic-bezier(.22, 1, .36, 1) both;
+  }
+
+  [data-enter] > *:nth-child(2) { animation-delay: 70ms; }
+  [data-enter] > *:nth-child(3) { animation-delay: 140ms; }
+
+  /* The pipeline rail pulses only while a stage is running. */
+  @keyframes ui-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.45; }
+  }
+
+  .ui-running {
+    animation: ui-pulse 1.1s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+
+    .ui-lift:hover { transform: none; }
+    [data-enter] > * { opacity: 1; transform: none; }
   }
 }

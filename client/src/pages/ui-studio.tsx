@@ -11,6 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   ArrowLeft,
   ArrowRight,
@@ -479,8 +480,83 @@ function VersionDialog({
   );
 }
 
+type StageState = "idle" | "running" | "ok" | "blocked";
+
+type Stages = {
+  planner: StageState;
+  validator: StageState;
+  generator: StageState;
+  explainer: StageState;
+};
+
+const IDLE_STAGES: Stages = {
+  planner: "idle",
+  validator: "idle",
+  generator: "idle",
+  explainer: "idle",
+};
+
+const STAGE_COPY: { key: keyof Stages; name: string; note: string }[] = [
+  { key: "planner", name: "Planner", note: "Prompt becomes a structured plan" },
+  { key: "validator", name: "Validator", note: "Rejects anything off the whitelist" },
+  { key: "generator", name: "Generator", note: "Composes approved components only" },
+  { key: "explainer", name: "Explainer", note: "Writes down why, in English" },
+];
+
+/**
+ * The pipeline, made visible.
+ *
+ * This is the product's whole argument - a prompt cannot reach the
+ * renderer without passing a validator - and it was previously stated
+ * once in a subtitle and never shown. Each stage reports its real
+ * outcome; a blocked run stops at the validator and says so.
+ */
+function PipelineRail({ stages }: { stages: Stages }) {
+  return (
+    <ol
+      className="flex flex-wrap items-stretch gap-px overflow-hidden rounded ui-inset-ring bg-border"
+      data-testid="rail-pipeline"
+      aria-label="Generation pipeline"
+    >
+      {STAGE_COPY.map((stage, index) => {
+        const state = stages[stage.key];
+        const tone =
+          state === "blocked"
+            ? "text-destructive"
+            : state === "ok"
+              ? "text-[hsl(var(--success))]"
+              : state === "running"
+                ? "text-accent ui-running"
+                : "text-muted-foreground";
+
+        return (
+          <li
+            key={stage.key}
+            className="flex min-w-[9.5rem] flex-1 flex-col gap-1 bg-card px-3 py-2.5"
+            data-testid={`stage-${stage.key}`}
+            data-state={state}
+          >
+            <div className="flex items-center gap-2">
+              <span className={cn("ui-mono text-[11px] tabular-nums", tone)}>
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              <span className="text-sm font-medium">{stage.name}</span>
+              <span className={cn("ml-auto ui-mono text-[10px] uppercase tracking-wider", tone)}>
+                {state === "idle" ? "ready" : state}
+              </span>
+            </div>
+            <p className="text-xs leading-snug text-muted-foreground">{stage.note}</p>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 export default function UIStudio() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  // Side-by-side panels are unusable at phone width, so they stack there.
+  const isMobile = useIsMobile();
 
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -512,6 +588,7 @@ export default function UIStudio() {
 
   const [versions, setVersions] = useState<UIModel[]>([{ ...model }]);
   const [error, setError] = useState<string | null>(null);
+  const [stages, setStages] = useState<Stages>(IDLE_STAGES);
 
   const chatViewportRef = useRef<HTMLDivElement | null>(null);
 
@@ -526,10 +603,14 @@ export default function UIStudio() {
 
   function runAgent(userText: string, mode: "generate" | "modify") {
     setError(null);
+    setStages({ ...IDLE_STAGES, planner: "running" });
 
     const nextPlan = planner(userText, mode === "modify" ? model.plan : undefined);
     const validation = validatePlan(nextPlan);
+
     if (!validation.ok) {
+      // The run really does stop here, so the rail stops here too.
+      setStages({ ...IDLE_STAGES, planner: "ok", validator: "blocked" });
       setError(validation.error);
       pushMessage("assistant", `Blocked: ${validation.error}`);
       return;
@@ -546,6 +627,29 @@ export default function UIStudio() {
 
     setModel(nextModel);
     setVersions((v) => [...v, nextModel]);
+
+    // Every stage below already ran synchronously and these are their real
+    // outcomes; the delays only let the eye follow the order.
+    setStages({ ...IDLE_STAGES, planner: "ok", validator: "running" });
+    window.setTimeout(
+      () => setStages({ ...IDLE_STAGES, planner: "ok", validator: "ok", generator: "running" }),
+      110,
+    );
+    window.setTimeout(
+      () =>
+        setStages({
+          ...IDLE_STAGES,
+          planner: "ok",
+          validator: "ok",
+          generator: "ok",
+          explainer: "running",
+        }),
+      220,
+    );
+    window.setTimeout(
+      () => setStages({ planner: "ok", validator: "ok", generator: "ok", explainer: "ok" }),
+      330,
+    );
 
     pushMessage(
       "assistant",
@@ -568,53 +672,89 @@ export default function UIStudio() {
     pushMessage("assistant", `Restored version #${idx + 1}.`);
   }
 
-  const headerGlow =
-    "bg-[radial-gradient(1200px_circle_at_20%_10%,hsl(var(--primary)/0.22),transparent_60%),radial-gradient(900px_circle_at_90%_20%,hsl(var(--chart-2)/0.16),transparent_55%)]";
-
   return (
     <div
       className={cn("min-h-screen", theme === "dark" ? "dark" : "", "ui-grid")}
       data-testid="page-ui-studio"
     >
-      <div className={cn("relative", headerGlow)}>
-        <div className="ui-noise absolute inset-0" />
+      <div className="relative border-b bg-card/70 backdrop-blur-sm">
         <div className="mx-auto max-w-[1400px] px-4 py-6">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <div
-                  className="h-9 w-9 rounded-xl ui-surface ui-inset-ring grid place-items-center"
+          <div className="flex flex-wrap items-start justify-between gap-6" data-enter>
+            <div className="max-w-2xl">
+              <div className="flex items-center gap-2.5">
+                <span
+                  className="grid h-8 w-8 place-items-center rounded bg-primary text-primary-foreground"
                   aria-hidden="true"
                 >
-                  <Sparkles className="h-5 w-5 text-primary" />
-                </div>
-                <h1 className="ui-title text-2xl" data-testid="text-app-title">
-                  Deterministic UI Builder
-                </h1>
+                  <Sparkles className="h-4 w-4" />
+                </span>
+                <span className="ui-label">Prompt2UI</span>
               </div>
-              <p className="text-sm text-muted-foreground mt-2 max-w-2xl" data-testid="text-app-subtitle">
-                A three-step agent (Planner → Generator → Explainer) that only composes from a fixed component
-                whitelist.
+
+              <h1 className="ui-title mt-4 text-3xl leading-[1.1] sm:text-4xl" data-testid="text-app-title">
+                Describe an interface.
+                <br />
+                Get the same one every time.
+              </h1>
+
+              <p className="mt-3 text-[15px] leading-relaxed text-muted-foreground" data-testid="text-app-subtitle">
+                The prompt chooses which approved components to use and how to configure them — it
+                never writes markup. Nine components are whitelisted; anything else is refused at
+                validation with a named error.
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
-              <Button
-                variant="secondary"
-                className="gap-2"
-                onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-                data-testid="button-toggle-theme"
-              >
-                <ShieldCheck className="h-4 w-4" />
-                {theme === "light" ? "Dark" : "Light"}
-              </Button>
+            <div className="flex flex-1 flex-col items-stretch gap-4 lg:max-w-sm">
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  variant="secondary"
+                  className="gap-2 ui-press"
+                  onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
+                  data-testid="button-toggle-theme"
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  {theme === "light" ? "Dark" : "Light"}
+                </Button>
 
-              <VersionDialog versions={versionItems} onRestore={(id) => restoreByIndex(id)} />
+                <VersionDialog versions={versionItems} onRestore={(id) => restoreByIndex(id)} />
+              </div>
+
+              {/* The constraint is the product. Showing the whole allowed
+                  set is the most direct way to say what cannot happen. */}
+              <div className="rounded ui-inset-ring bg-card p-4" data-testid="panel-whitelist">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="ui-label">Component whitelist</span>
+                  <span className="ui-mono text-xs tabular-nums text-muted-foreground">
+                    {ALLOWED_COMPONENTS.size} allowed
+                  </span>
+                </div>
+                <ul className="mt-3 flex flex-wrap gap-1.5">
+                  {Array.from(ALLOWED_COMPONENTS).map((name) => (
+                    <li
+                      key={name}
+                      className="ui-mono rounded-sm bg-muted px-1.5 py-1 text-[11px] text-foreground/80"
+                    >
+                      {name}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-3 text-xs leading-snug text-muted-foreground">
+                  Custom CSS is blocked. A model that cannot freestyle cannot hallucinate a broken
+                  layout.
+                </p>
+              </div>
             </div>
           </div>
 
           <div className="mt-6">
-            <ResizablePanelGroup direction="horizontal" className="rounded-2xl ui-surface ui-inset-ring">
+            <PipelineRail stages={stages} />
+          </div>
+
+          <div className="mt-4">
+            <ResizablePanelGroup
+              direction={isMobile ? "vertical" : "horizontal"}
+              className={cn("rounded ui-surface ui-inset-ring", isMobile && "min-h-[150vh]")}
+            >
               <ResizablePanel defaultSize={32} minSize={24} className="p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
@@ -660,7 +800,7 @@ export default function UIStudio() {
 
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
-                      className="gap-2"
+                      className="gap-2 ui-press"
                       onClick={() => {
                         pushMessage("user", prompt);
                         runAgent(prompt, "generate");
@@ -673,7 +813,7 @@ export default function UIStudio() {
 
                     <Button
                       variant="secondary"
-                      className="gap-2"
+                      className="gap-2 ui-press"
                       onClick={() => {
                         pushMessage("user", prompt);
                         runAgent(prompt, "modify");
@@ -686,7 +826,7 @@ export default function UIStudio() {
 
                     <Button
                       variant="ghost"
-                      className="gap-2"
+                      className="gap-2 ui-press"
                       onClick={() => {
                         setPrompt("");
                       }}
@@ -791,7 +931,7 @@ export default function UIStudio() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <Card className="p-5" data-testid="card-feature-1">
             <div className="flex items-center gap-2">
-              <div className="h-9 w-9 rounded-xl ui-surface ui-inset-ring grid place-items-center">
+              <div className="h-9 w-9 rounded ui-surface ui-inset-ring grid place-items-center ui-lift">
                 <ShieldCheck className="h-5 w-5 text-primary" />
               </div>
               <div className="font-semibold">Deterministic components</div>
@@ -802,7 +942,7 @@ export default function UIStudio() {
           </Card>
           <Card className="p-5" data-testid="card-feature-2">
             <div className="flex items-center gap-2">
-              <div className="h-9 w-9 rounded-xl ui-surface ui-inset-ring grid place-items-center">
+              <div className="h-9 w-9 rounded ui-surface ui-inset-ring grid place-items-center ui-lift">
                 <Wand2 className="h-5 w-5 text-primary" />
               </div>
               <div className="font-semibold">Three-step agent</div>
@@ -813,7 +953,7 @@ export default function UIStudio() {
           </Card>
           <Card className="p-5" data-testid="card-feature-3">
             <div className="flex items-center gap-2">
-              <div className="h-9 w-9 rounded-xl ui-surface ui-inset-ring grid place-items-center">
+              <div className="h-9 w-9 rounded ui-surface ui-inset-ring grid place-items-center ui-lift">
                 <ArrowRight className="h-5 w-5 text-primary" />
               </div>
               <div className="font-semibold">Iteration & rollback</div>
