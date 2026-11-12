@@ -13,8 +13,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { cn } from "@/lib/utils";
 import {
   ALLOWED_COMPONENTS,
+  PARTS,
+  SUBJECTS,
+  TONES,
+  composePrompt,
+  describePlan,
   planner,
   validatePlan,
+  type ComponentName,
   type PlanTrace,
   type UIPlan,
 } from "@/lib/planner";
@@ -23,6 +29,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Bot,
+  Check,
   Terminal,
   Code2,
   Eye,
@@ -123,6 +130,80 @@ function CodeBlock({ value }: { value: string }) {
         <code>{value}</code>
       </pre>
     </div>
+  );
+}
+
+/**
+ * A real chart, drawn from a seeded series.
+ *
+ * The cards previously showed an empty gradient rectangle, which read as
+ * a component that had failed to load. The series is derived from the
+ * plan's subject, so the same plan always draws the same chart - the
+ * determinism promise has to hold for the pictures too.
+ */
+function seededSeries(seed: string, count: number): number[] {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const out: number[] = [];
+  for (let i = 0; i < count; i++) {
+    h ^= h << 13;
+    h ^= h >>> 17;
+    h ^= h << 5;
+    out.push(28 + (Math.abs(h) % 68));
+  }
+  return out;
+}
+
+function MiniChart({ kind, seed }: { kind: "line" | "bar"; seed: string }) {
+  const count = kind === "line" ? 16 : 7;
+  const values = seededSeries(seed, count);
+  const w = 320;
+  const h = 110;
+  const pad = 6;
+  const max = Math.max(...values) + 8;
+
+  if (kind === "bar") {
+    const slot = (w - pad * 2) / values.length;
+    return (
+      <svg viewBox={`0 0 ${w} ${h}`} className="h-36 w-full" role="img"
+           aria-label={`Bar chart with ${values.length} bars`} data-testid="svg-bar">
+        {values.map((v, i) => {
+          const bh = (v / max) * (h - pad * 2);
+          return (
+            <rect
+              key={i}
+              x={pad + i * slot + slot * 0.18}
+              y={h - pad - bh}
+              width={slot * 0.64}
+              height={bh}
+              rx="1"
+              className="fill-accent"
+              opacity={0.55 + (i % 3) * 0.15}
+            />
+          );
+        })}
+      </svg>
+    );
+  }
+
+  const step = (w - pad * 2) / (values.length - 1);
+  const pts = values.map((v, i) => [pad + i * step, h - pad - (v / max) * (h - pad * 2)]);
+  const line = pts.map((pt) => `${pt[0].toFixed(1)},${pt[1].toFixed(1)}`).join(" ");
+  const area = `${pad},${h - pad} ${line} ${w - pad},${h - pad}`;
+
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="h-36 w-full" role="img"
+         aria-label={`Line chart with ${values.length} points`} data-testid="svg-line">
+      <polygon points={area} className="fill-primary" opacity="0.12" />
+      <polyline points={line} fill="none" strokeWidth="2" strokeLinejoin="round"
+                strokeLinecap="round" className="stroke-primary" />
+      {pts.map((pt, i) => (
+        <circle key={i} cx={pt[0]} cy={pt[1]} r="2" className="fill-primary" opacity="0.8" />
+      ))}
+    </svg>
   );
 }
 
@@ -244,13 +325,13 @@ function PreviewMock({ model }: { model: UIModel }) {
             {plan.components.includes("LineChartCard") ? (
               <div className="rounded ui-inset-ring bg-card/70 p-3" data-testid="card-line-chart">
                 <div className="text-sm font-medium mb-2">{plan.content.lineTitle ?? "Trend"}</div>
-                <div className="h-36 rounded bg-gradient-to-b from-primary/20 to-transparent" />
+                <MiniChart kind="line" seed={`${plan.domain}-line`} />
               </div>
             ) : null}
             {plan.components.includes("BarChartCard") ? (
               <div className="rounded ui-inset-ring bg-card/70 p-3" data-testid="card-bar-chart">
                 <div className="text-sm font-medium mb-2">{plan.content.barTitle ?? "Breakdown"}</div>
-                <div className="h-36 rounded bg-gradient-to-b from-accent/35 to-transparent" />
+                <MiniChart kind="bar" seed={`${plan.domain}-bar`} />
               </div>
             ) : null}
           </div>
@@ -545,6 +626,22 @@ export default function UIStudio() {
   const [error, setError] = useState<string | null>(null);
   const [stages, setStages] = useState<Stages>(IDLE_STAGES);
   const [trace, setTrace] = useState<PlanTrace | null>(null);
+  const [lastReply, setLastReply] = useState<string | null>(null);
+
+  // The builder's choices. They compose a sentence which goes through the
+  // same planner as typed text, so clicking and typing cannot diverge.
+  const [subject, setSubject] = useState<string | null>("support");
+  const [parts, setParts] = useState<ComponentName[]>([
+    "Sidebar",
+    "KPIGrid",
+    "LineChartCard",
+    "DataTable",
+  ]);
+  const [toneChoice, setToneChoice] = useState<UIPlan["tone"]>("minimal");
+  const composed = useMemo(
+    () => composePrompt(subject, parts, toneChoice),
+    [subject, parts, toneChoice],
+  );
 
   const chatViewportRef = useRef<HTMLDivElement | null>(null);
 
@@ -569,6 +666,7 @@ export default function UIStudio() {
       // The run really does stop here, so the rail stops here too.
       setStages({ ...IDLE_STAGES, planner: "ok", validator: "blocked" });
       setError(validation.error);
+      setLastReply(null);
       pushMessage("assistant", `Blocked: ${validation.error}`);
       return;
     }
@@ -618,20 +716,19 @@ export default function UIStudio() {
       330,
     );
 
-    const removedNote = trace.removed.length ? ` Removed: ${trace.removed.join(", ")}.` : "";
-    pushMessage(
-      "assistant",
-      `${nextPlan.layout} layout, ${nextPlan.tone} tone, subject "${nextPlan.domain}".
-` +
-        `Components: ${nextPlan.components.join(", ")}.${removedNote}`,
-    );
-    if (trace.ignored.length) {
+    // Plain English. Component names are an implementation detail and mean
+    // nothing to someone who did not write this code.
+    const summary = describePlan(nextPlan);
+    setLastReply(`Built it. ${summary}`);
+    pushMessage("assistant", summary);
+
+    // Only worth mentioning when enough was missed to explain a surprise.
+    if (trace.ignored.length >= 2) {
       pushMessage(
         "assistant",
-        `I did not act on: ${trace.ignored.join(", ")}. Those words are not in the planner's vocabulary.`,
+        `I did not understand ${trace.ignored.slice(0, 6).join(", ")} — so nothing on screen came from those words.`,
       );
     }
-    pushMessage("assistant", nextExplanation);
   }
 
   const versionItems = versions.map((v, idx) => ({
@@ -651,8 +748,9 @@ export default function UIStudio() {
     setStages({ planner: "ok", validator: "ok", generator: "ok", explainer: "ok" });
     pushMessage(
       "assistant",
-      `Restored v${idx + 1} — ${entry.model.plan.layout}, ${entry.model.plan.components.length} components.`,
+      `Went back to version ${idx + 1}: ${describePlan(entry.model.plan).toLowerCase()}`,
     );
+    setLastReply(`Restored version ${idx + 1}. ${describePlan(entry.model.plan)}`);
   }
 
   return (
@@ -744,113 +842,192 @@ export default function UIStudio() {
             >
               <ResizablePanel defaultSize={32} minSize={24} className="p-4">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <Terminal className="h-4 w-4 text-muted-foreground" />
-                    <div className="text-sm font-medium">Prompt</div>
+                  <div>
+                    <div className="text-sm font-medium">Build your screen</div>
+                    <p className="text-xs text-muted-foreground">
+                      Pick what it is about and what goes on it.
+                    </p>
                   </div>
                   <Badge variant="secondary" className="gap-1" data-testid="badge-deterministic">
-                    <ShieldCheck className="h-3 w-3" /> deterministic
+                    <ShieldCheck className="h-3 w-3" /> no AI
                   </Badge>
                 </div>
 
                 <Separator className="my-3" />
 
-                <ScrollArea className="h-[52vh] pr-3" data-testid="scroll-chat">
-                  <div ref={chatViewportRef} className="space-y-3" data-testid="list-messages">
-                    {messages.map((m, i) => (
-                      <div
-                        key={m.id}
-                        className={cn(
-                          "rounded p-3 ui-inset-ring",
-                          m.role === "user" ? "bg-primary/8" : "bg-card/60",
-                        )}
-                        data-testid={`message-${m.role}-${i}`}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="text-xs text-muted-foreground">{m.role === "user" ? "You" : "Planner"}</div>
-                          <div className="text-[11px] text-muted-foreground">{new Date(m.ts).toLocaleTimeString()}</div>
-                        </div>
-                        <div className="text-sm mt-2 whitespace-pre-wrap">{m.content}</div>
+                <ScrollArea className="h-[56vh] pr-3" data-testid="scroll-builder">
+                  <div className="space-y-5">
+                    <div>
+                      <div className="ui-label mb-2">1 · What is it about?</div>
+                      <div className="flex flex-wrap gap-1.5" data-testid="list-subjects">
+                        {SUBJECTS.map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => setSubject(subject === s.id ? null : s.id)}
+                            className={cn(
+                              "rounded-sm px-2 py-1 text-xs transition-colors ui-inset-ring",
+                              subject === s.id
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-card text-muted-foreground hover:bg-muted hover:text-foreground",
+                            )}
+                            data-testid={`chip-subject-${s.id}`}
+                          >
+                            {s.label}
+                          </button>
+                        ))}
                       </div>
-                    ))}
+                    </div>
+
+                    <div>
+                      <div className="ui-label mb-2">2 · What goes on it?</div>
+                      <div className="grid gap-1.5" data-testid="list-parts">
+                        {PARTS.map((part) => {
+                          const on = parts.includes(part.component);
+                          return (
+                            <button
+                              key={part.component}
+                              type="button"
+                              onClick={() =>
+                                setParts((cur) =>
+                                  cur.includes(part.component)
+                                    ? cur.filter((c) => c !== part.component)
+                                    : [...cur, part.component],
+                                )
+                              }
+                              className={cn(
+                                "flex items-start gap-2 rounded-sm px-2 py-1.5 text-left transition-colors ui-inset-ring",
+                                on ? "bg-primary/10" : "bg-card hover:bg-muted",
+                              )}
+                              aria-pressed={on}
+                              data-testid={`toggle-part-${part.component}`}
+                            >
+                              <span
+                                className={cn(
+                                  "mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-[3px] border",
+                                  on
+                                    ? "border-primary bg-primary text-primary-foreground"
+                                    : "border-border",
+                                )}
+                                aria-hidden="true"
+                              >
+                                {on ? <Check className="h-3 w-3" /> : null}
+                              </span>
+                              <span className="min-w-0">
+                                <span className="block text-xs font-medium">{part.label}</span>
+                                <span className="block text-[11px] leading-tight text-muted-foreground">
+                                  {part.hint}
+                                </span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="ui-label mb-2">3 · Style</div>
+                      <div className="flex flex-wrap gap-1.5" data-testid="list-tones">
+                        {TONES.map((t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => setToneChoice(t.id)}
+                            className={cn(
+                              "rounded-sm px-2 py-1 text-xs transition-colors ui-inset-ring",
+                              toneChoice === t.id
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-card text-muted-foreground hover:bg-muted hover:text-foreground",
+                            )}
+                            data-testid={`chip-tone-${t.id}`}
+                          >
+                            {t.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-sm bg-muted/50 p-3" data-testid="text-composed">
+                      <div className="ui-label mb-1">This asks for</div>
+                      <p className="text-sm leading-snug">{composed}</p>
+                    </div>
                   </div>
                 </ScrollArea>
 
                 <div className="mt-3 space-y-2">
-                  <Textarea
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="Describe the UI you want…"
-                    className="min-h-[88px] resize-none"
-                    data-testid="input-prompt"
-                  />
+                  <Button
+                    className="w-full gap-2 ui-press"
+                    onClick={() => {
+                      pushMessage("user", composed);
+                      runAgent(composed, "generate");
+                    }}
+                    data-testid="button-generate"
+                  >
+                    <Wand2 className="h-4 w-4" />
+                    Build it
+                  </Button>
 
-                  <div className="flex flex-wrap gap-1.5" data-testid="list-examples">
-                    {PROMPT_EXAMPLES.map((ex) => (
-                      <button
-                        key={ex.label}
-                        type="button"
-                        className="rounded-sm ui-inset-ring bg-card px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                        onClick={() => {
-                          setPrompt(ex.prompt);
-                          pushMessage("user", ex.prompt);
-                          runAgent(ex.prompt, "generate");
-                        }}
-                        data-testid={`button-example-${ex.label.toLowerCase().replace(/\s+/g, "-")}`}
-                      >
-                        {ex.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      className="gap-2 ui-press"
-                      onClick={() => {
-                        pushMessage("user", prompt);
-                        runAgent(prompt, "generate");
-                      }}
-                      data-testid="button-generate"
+                  {lastReply ? (
+                    <div
+                      className="flex items-start gap-2 rounded-sm bg-[hsl(var(--success))]/10 px-3 py-2"
+                      role="status"
+                      data-testid="status-built"
                     >
-                      <Wand2 className="h-4 w-4" />
-                      Generate UI
-                    </Button>
-
-                    <Button
-                      variant="secondary"
-                      className="gap-2 ui-press"
-                      onClick={() => {
-                        pushMessage("user", prompt);
-                        runAgent(prompt, "modify");
-                      }}
-                      data-testid="button-modify"
-                    >
-                      <RefreshCcw className="h-4 w-4" />
-                      Modify UI
-                    </Button>
-
-                    <Button
-                      variant="ghost"
-                      className="gap-2 ui-press"
-                      onClick={() => {
-                        setPrompt("");
-                      }}
-                      data-testid="button-clear"
-                    >
-                      <RotateCcw className="h-4 w-4" />
-                      Clear
-                    </Button>
-                  </div>
-
-                  {error ? (
-                    <div className="rounded bg-destructive/10 text-destructive px-3 py-2 text-sm" data-testid="status-error">
-                      {error}
+                      <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--success))]" />
+                      <span className="text-xs leading-snug">{lastReply}</span>
                     </div>
                   ) : null}
 
-                  <div className="rounded bg-muted/50 px-3 py-2 text-xs text-muted-foreground" data-testid="text-safety">
-                    Safety: component whitelist + plan validation before rendering.
-                  </div>
+                  <details className="rounded-sm ui-inset-ring bg-card" data-testid="details-freeform">
+                    <summary className="cursor-pointer px-3 py-2 text-xs text-muted-foreground">
+                      Or describe it in your own words
+                    </summary>
+                    <div className="space-y-2 border-t p-3">
+                      <Textarea
+                        value={prompt}
+                        onChange={(e) => setPrompt(e.target.value)}
+                        placeholder="e.g. a support desk with open tickets and a bar chart, no sidebar"
+                        className="min-h-[72px] resize-none text-sm"
+                        data-testid="input-prompt"
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          className="gap-2 ui-press"
+                          onClick={() => {
+                            pushMessage("user", prompt);
+                            runAgent(prompt, "generate");
+                          }}
+                          data-testid="button-generate-text"
+                        >
+                          Build from text
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="gap-2 ui-press"
+                          onClick={() => {
+                            pushMessage("user", prompt);
+                            runAgent(prompt, "modify");
+                          }}
+                          data-testid="button-modify"
+                        >
+                          <RefreshCcw className="h-3.5 w-3.5" />
+                          Refine current
+                        </Button>
+                      </div>
+                    </div>
+                  </details>
+
+                  {error ? (
+                    <div
+                      className="rounded-sm bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                      role="alert"
+                      data-testid="status-error"
+                    >
+                      {error}
+                    </div>
+                  ) : null}
                 </div>
               </ResizablePanel>
 
@@ -877,6 +1054,16 @@ export default function UIStudio() {
 
                   <TabsContent value="preview" className="p-4" data-testid="panel-preview">
                     <PreviewMock model={model} />
+                    <div className="mt-4 rounded-sm ui-inset-ring bg-muted/40 p-4" data-testid="text-summary">
+                      <div className="ui-label mb-1">What this is</div>
+                      <p className="text-sm leading-snug">{describePlan(model.plan)}</p>
+                    </div>
+
+                    <details className="mt-3 rounded-sm ui-inset-ring bg-card" data-testid="details-technical">
+                      <summary className="cursor-pointer px-4 py-2.5 text-xs text-muted-foreground">
+                        Technical details — the plan, the reasoning and the guardrails
+                      </summary>
+                      <div className="border-t p-4">
                     <div className="mt-3 grid grid-cols-1 lg:grid-cols-3 gap-3" data-testid="grid-meta">
                       <Card className="p-4" data-testid="card-planner">
                         <div className="text-xs text-muted-foreground">Planner output</div>
@@ -908,6 +1095,8 @@ export default function UIStudio() {
                         </div>
                       </Card>
                     </div>
+                      </div>
+                    </details>
                   </TabsContent>
 
                   <TabsContent value="code" className="p-4" data-testid="panel-code">

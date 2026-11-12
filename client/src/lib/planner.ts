@@ -662,3 +662,73 @@ export function validatePlan(plan: UIPlan): { ok: true } | { ok: false; error: s
   if (!plan.tone) return { ok: false, error: "Plan has no tone." };
   return { ok: true };
 }
+
+// ---------------------------------------------------------------------------
+// Plain-language surface
+//
+// The component names are an implementation detail. People asking for an
+// interface think in subjects ("support tickets") and parts ("a chart"),
+// so the UI offers those and composes a sentence from them, which then
+// goes through this same planner. Clicking teaches you what to type.
+// ---------------------------------------------------------------------------
+
+export const SUBJECTS: Array<{ id: string; label: string; word: string }> =
+  DOMAINS.filter((d) => d.id !== "generic").map((d) => ({
+    id: d.id,
+    label: d.title,
+    word: d.label,
+  }));
+
+export const PARTS: Array<{ component: ComponentName; label: string; hint: string; word: string }> = [
+  { component: "Sidebar", label: "Side menu", hint: "Navigation down the left", word: "a sidebar" },
+  { component: "KPIGrid", label: "Number tiles", hint: "Headline figures across the top", word: "KPIs" },
+  { component: "LineChartCard", label: "Trend chart", hint: "A line showing change over time", word: "a trend chart" },
+  { component: "BarChartCard", label: "Comparison chart", hint: "Bars comparing categories", word: "a bar chart" },
+  { component: "DataTable", label: "Table", hint: "Rows of records", word: "a table" },
+  { component: "SettingsModal", label: "Settings dialog", hint: "A preferences pop-up", word: "a settings modal" },
+  { component: "EmptyState", label: "Empty state", hint: "What it looks like with no data", word: "an empty state" },
+];
+
+export const TONES: Array<{ id: UIPlan["tone"]; label: string }> = [
+  { id: "minimal", label: "Minimal" },
+  { id: "bold", label: "Bold" },
+  { id: "playful", label: "Playful" },
+  { id: "enterprise", label: "Corporate" },
+];
+
+/** Compose the sentence a set of choices means, so the user can see it. */
+export function composePrompt(
+  subjectId: string | null,
+  parts: ComponentName[],
+  tone: UIPlan["tone"],
+): string {
+  const subject = SUBJECTS.find((s) => s.id === subjectId);
+  const chosen = PARTS.filter((p) => parts.includes(p.component)).map((p) => p.word);
+  const subjectWord = subject ? `${subject.word} ` : "";
+  const list =
+    chosen.length === 0
+      ? ""
+      : chosen.length === 1
+        ? ` with ${chosen[0]}`
+        : ` with ${chosen.slice(0, -1).join(", ")} and ${chosen[chosen.length - 1]}`;
+  const article = /^[aeiou]/.test(tone) ? "An" : "A";
+  return `${article} ${tone} ${subjectWord}dashboard${list}.`;
+}
+
+/** A sentence a person would say about what was built. */
+export function describePlan(plan: UIPlan): string {
+  const names = PARTS.filter((p) => plan.components.includes(p.component)).map((p) =>
+    p.label.toLowerCase(),
+  );
+  // The subject *word* ("logistics"), not its title ("Deliveries"), so the
+  // sentence works for plural subjects too: "A deliveries with..." read
+  // badly, "A logistics screen with..." does not.
+  const subject = SUBJECTS.find((s) => s.id === plan.domain);
+  const what = subject ? `${subject.word} screen` : "general screen";
+  if (names.length === 0) return `An empty ${what}.`;
+  const list =
+    names.length === 1
+      ? names[0]
+      : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `A ${what} with ${list}.`;
+}
