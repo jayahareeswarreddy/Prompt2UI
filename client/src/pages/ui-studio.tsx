@@ -600,7 +600,7 @@ export default function UIStudio() {
   ]);
 
   const [prompt, setPrompt] = useState<string>(
-    "Create a dashboard with a sidebar, charts, and a table. Make it minimal and add a settings modal.",
+    "A minimal support dashboard with a sidebar, KPIs, a trend chart and a table.",
   );
 
   const initialPlan = useMemo<UIPlan>(
@@ -638,10 +638,17 @@ export default function UIStudio() {
     "DataTable",
   ]);
   const [toneChoice, setToneChoice] = useState<UIPlan["tone"]>("minimal");
-  const composed = useMemo(
-    () => composePrompt(subject, parts, toneChoice),
-    [subject, parts, toneChoice],
-  );
+  /** A shortcut rewrites the prompt box, so the prompt stays the one input. */
+  function applyChoice(
+    nextSubject: string | null,
+    nextParts: ComponentName[],
+    nextTone: UIPlan["tone"],
+  ) {
+    setSubject(nextSubject);
+    setParts(nextParts);
+    setToneChoice(nextTone);
+    setPrompt(composePrompt(nextSubject, nextParts, nextTone));
+  }
 
   const chatViewportRef = useRef<HTMLDivElement | null>(null);
 
@@ -843,9 +850,9 @@ export default function UIStudio() {
               <ResizablePanel defaultSize={32} minSize={24} className="p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-medium">Build your screen</div>
+                    <div className="text-sm font-medium">Your prompt</div>
                     <p className="text-xs text-muted-foreground">
-                      Pick what it is about and what goes on it.
+                      Describe the screen. Plain English.
                     </p>
                   </div>
                   <Badge variant="secondary" className="gap-1" data-testid="badge-deterministic">
@@ -853,18 +860,90 @@ export default function UIStudio() {
                   </Badge>
                 </div>
 
+                <div className="mt-3 space-y-2">
+                  <Textarea
+                    value={prompt}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setPrompt(next);
+                      // Typing by hand means the shortcuts no longer describe
+                      // what is in the box, so they stop claiming to.
+                      if (next !== composePrompt(subject, parts, toneChoice)) {
+                        setSubject(null);
+                        setParts([]);
+                      }
+                    }}
+                    placeholder="a support desk with open tickets and a bar chart, no sidebar"
+                    className="min-h-[104px] resize-none text-[15px] leading-relaxed"
+                    data-testid="input-prompt"
+                    aria-label="Describe the screen you want"
+                  />
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      className="flex-1 gap-2 ui-press"
+                      onClick={() => {
+                        pushMessage("user", prompt);
+                        runAgent(prompt, "generate");
+                      }}
+                      data-testid="button-generate"
+                    >
+                      <Wand2 className="h-4 w-4" />
+                      Build it
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      className="gap-2 ui-press"
+                      onClick={() => {
+                        pushMessage("user", prompt);
+                        runAgent(prompt, "modify");
+                      }}
+                      title="Apply this prompt on top of what is already on screen"
+                      data-testid="button-modify"
+                    >
+                      <RefreshCcw className="h-3.5 w-3.5" />
+                      Refine
+                    </Button>
+                  </div>
+
+                  {lastReply ? (
+                    <div
+                      className="flex items-start gap-2 rounded-sm bg-[hsl(var(--success))]/10 px-3 py-2"
+                      role="status"
+                      data-testid="status-built"
+                    >
+                      <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--success))]" />
+                      <span className="text-xs leading-snug">{lastReply}</span>
+                    </div>
+                  ) : null}
+
+                  {error ? (
+                    <div
+                      className="rounded-sm bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                      role="alert"
+                      data-testid="status-error"
+                    >
+                      {error}
+                    </div>
+                  ) : null}
+                </div>
+
                 <Separator className="my-3" />
 
-                <ScrollArea className="h-[56vh] pr-3" data-testid="scroll-builder">
+                <ScrollArea className="h-[40vh] pr-3" data-testid="scroll-builder">
                   <div className="space-y-5">
+                    <p className="text-xs text-muted-foreground">
+                      Stuck? Tap these to write the prompt for you — then edit it however you like.
+                    </p>
+
                     <div>
-                      <div className="ui-label mb-2">1 · What is it about?</div>
+                      <div className="ui-label mb-2">Subject</div>
                       <div className="flex flex-wrap gap-1.5" data-testid="list-subjects">
                         {SUBJECTS.map((s) => (
                           <button
                             key={s.id}
                             type="button"
-                            onClick={() => setSubject(subject === s.id ? null : s.id)}
+                            onClick={() => applyChoice(subject === s.id ? null : s.id, parts, toneChoice)}
                             className={cn(
                               "rounded-sm px-2 py-1 text-xs transition-colors ui-inset-ring",
                               subject === s.id
@@ -880,45 +959,35 @@ export default function UIStudio() {
                     </div>
 
                     <div>
-                      <div className="ui-label mb-2">2 · What goes on it?</div>
-                      <div className="grid gap-1.5" data-testid="list-parts">
+                      <div className="ui-label mb-2">Parts</div>
+                      <div className="flex flex-wrap gap-1.5" data-testid="list-parts">
                         {PARTS.map((part) => {
                           const on = parts.includes(part.component);
                           return (
                             <button
                               key={part.component}
                               type="button"
+                              title={part.hint}
                               onClick={() =>
-                                setParts((cur) =>
-                                  cur.includes(part.component)
-                                    ? cur.filter((c) => c !== part.component)
-                                    : [...cur, part.component],
+                                applyChoice(
+                                  subject,
+                                  on
+                                    ? parts.filter((c) => c !== part.component)
+                                    : [...parts, part.component],
+                                  toneChoice,
                                 )
                               }
                               className={cn(
-                                "flex items-start gap-2 rounded-sm px-2 py-1.5 text-left transition-colors ui-inset-ring",
-                                on ? "bg-primary/10" : "bg-card hover:bg-muted",
+                                "flex items-center gap-1.5 rounded-sm px-2 py-1 text-xs transition-colors ui-inset-ring",
+                                on
+                                  ? "bg-primary/12 text-foreground"
+                                  : "bg-card text-muted-foreground hover:bg-muted hover:text-foreground",
                               )}
                               aria-pressed={on}
                               data-testid={`toggle-part-${part.component}`}
                             >
-                              <span
-                                className={cn(
-                                  "mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-[3px] border",
-                                  on
-                                    ? "border-primary bg-primary text-primary-foreground"
-                                    : "border-border",
-                                )}
-                                aria-hidden="true"
-                              >
-                                {on ? <Check className="h-3 w-3" /> : null}
-                              </span>
-                              <span className="min-w-0">
-                                <span className="block text-xs font-medium">{part.label}</span>
-                                <span className="block text-[11px] leading-tight text-muted-foreground">
-                                  {part.hint}
-                                </span>
-                              </span>
+                              {on ? <Check className="h-3 w-3 text-primary" /> : null}
+                              {part.label}
                             </button>
                           );
                         })}
@@ -926,13 +995,13 @@ export default function UIStudio() {
                     </div>
 
                     <div>
-                      <div className="ui-label mb-2">3 · Style</div>
+                      <div className="ui-label mb-2">Style</div>
                       <div className="flex flex-wrap gap-1.5" data-testid="list-tones">
                         {TONES.map((t) => (
                           <button
                             key={t.id}
                             type="button"
-                            onClick={() => setToneChoice(t.id)}
+                            onClick={() => applyChoice(subject, parts, t.id)}
                             className={cn(
                               "rounded-sm px-2 py-1 text-xs transition-colors ui-inset-ring",
                               toneChoice === t.id
@@ -947,88 +1016,17 @@ export default function UIStudio() {
                       </div>
                     </div>
 
-                    <div className="rounded-sm bg-muted/50 p-3" data-testid="text-composed">
-                      <div className="ui-label mb-1">This asks for</div>
-                      <p className="text-sm leading-snug">{composed}</p>
+                    <div>
+                      <div className="ui-label mb-2">Phrases it knows</div>
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        Say <em>no sidebar</em> or <em>without charts</em> to leave something out.
+                        Say <em>title: Bloom Store</em> to name it. Subjects it recognises include
+                        sales, tickets, users, orders, invoices, patients, students, deliveries,
+                        campaigns, servers and sprints.
+                      </p>
                     </div>
                   </div>
                 </ScrollArea>
-
-                <div className="mt-3 space-y-2">
-                  <Button
-                    className="w-full gap-2 ui-press"
-                    onClick={() => {
-                      pushMessage("user", composed);
-                      runAgent(composed, "generate");
-                    }}
-                    data-testid="button-generate"
-                  >
-                    <Wand2 className="h-4 w-4" />
-                    Build it
-                  </Button>
-
-                  {lastReply ? (
-                    <div
-                      className="flex items-start gap-2 rounded-sm bg-[hsl(var(--success))]/10 px-3 py-2"
-                      role="status"
-                      data-testid="status-built"
-                    >
-                      <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--success))]" />
-                      <span className="text-xs leading-snug">{lastReply}</span>
-                    </div>
-                  ) : null}
-
-                  <details className="rounded-sm ui-inset-ring bg-card" data-testid="details-freeform">
-                    <summary className="cursor-pointer px-3 py-2 text-xs text-muted-foreground">
-                      Or describe it in your own words
-                    </summary>
-                    <div className="space-y-2 border-t p-3">
-                      <Textarea
-                        value={prompt}
-                        onChange={(e) => setPrompt(e.target.value)}
-                        placeholder="e.g. a support desk with open tickets and a bar chart, no sidebar"
-                        className="min-h-[72px] resize-none text-sm"
-                        data-testid="input-prompt"
-                      />
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          size="sm"
-                          className="gap-2 ui-press"
-                          onClick={() => {
-                            pushMessage("user", prompt);
-                            runAgent(prompt, "generate");
-                          }}
-                          data-testid="button-generate-text"
-                        >
-                          Build from text
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          className="gap-2 ui-press"
-                          onClick={() => {
-                            pushMessage("user", prompt);
-                            runAgent(prompt, "modify");
-                          }}
-                          data-testid="button-modify"
-                        >
-                          <RefreshCcw className="h-3.5 w-3.5" />
-                          Refine current
-                        </Button>
-                      </div>
-                    </div>
-                  </details>
-
-                  {error ? (
-                    <div
-                      className="rounded-sm bg-destructive/10 px-3 py-2 text-sm text-destructive"
-                      role="alert"
-                      data-testid="status-error"
-                    >
-                      {error}
-                    </div>
-                  ) : null}
-                </div>
               </ResizablePanel>
 
               <ResizableHandle withHandle />
