@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -21,34 +21,21 @@ import {
   planner,
   validatePlan,
   type ComponentName,
-  type PlanTrace,
   type UIPlan,
 } from "@/lib/planner";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   ArrowLeft,
   ArrowRight,
-  Bot,
   Check,
-  Terminal,
   Code2,
   Eye,
   FileClock,
   RefreshCcw,
-  RotateCcw,
   ShieldCheck,
   Sparkles,
   Wand2,
 } from "lucide-react";
-
-type Role = "user" | "assistant";
-
-type ChatMessage = {
-  id: string;
-  role: Role;
-  content: string;
-  ts: number;
-};
 
 type UIModel = {
   plan: UIPlan;
@@ -57,16 +44,8 @@ type UIModel = {
 };
 
 
-function uid(prefix: string) {
-  return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
-}
-
 function now() {
   return Date.now();
-}
-
-function clampText(s: string, max = 5000) {
-  return s.length > max ? s.slice(0, max) + "…" : s;
 }
 
 function generator(plan: UIPlan): { code: string } {
@@ -262,7 +241,13 @@ function PreviewMock({ model }: { model: UIModel }) {
           data-testid="panel-topnav"
         >
           <span className="h-2.5 w-2.5 rounded-full bg-primary" aria-hidden="true" />
-          <span className="text-xs font-medium">{plan.content.title}</span>
+          {/* Nav links, not the title again - the panel header above already
+              says what this screen is. */}
+          <span className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+            {(plan.content.nav ?? ["Overview", "Reports", "Settings"]).slice(0, 4).map((item) => (
+              <span key={item}>{item}</span>
+            ))}
+          </span>
           <span className="ml-auto ui-mono text-[10px] uppercase tracking-wider text-muted-foreground">
             {plan.components.length} components
           </span>
@@ -487,30 +472,6 @@ function VersionDialog({
 
 type VersionEntry = { model: UIModel; ts: number; prompt: string };
 
-/** Starting points, so the first run is one click rather than a blank box. */
-const PROMPT_EXAMPLES: { label: string; prompt: string }[] = [
-  {
-    label: "Analytics dashboard",
-    prompt: "Create a dashboard with a sidebar, KPIs, a line chart and a table. Keep it minimal.",
-  },
-  {
-    label: "Revenue report",
-    prompt: "Enterprise dashboard with a bar chart for revenue, KPIs and a sales table.",
-  },
-  {
-    label: "Settings screen",
-    prompt: "A settings page with a modal for preferences and a table of options.",
-  },
-  {
-    label: "Landing page",
-    prompt: "A playful landing page with a hero and a pricing table. title: Prompt2UI",
-  },
-  {
-    label: "Empty state",
-    prompt: "Dashboard with a sidebar but no data yet, show an empty state.",
-  },
-];
-
 type StageState = "idle" | "running" | "ok" | "blocked";
 
 type Stages = {
@@ -589,16 +550,6 @@ export default function UIStudio() {
   // Side-by-side panels are unusable at phone width, so they stack there.
   const isMobile = useIsMobile();
 
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: uid("m"),
-      role: "assistant",
-      content:
-        "Describe a UI (e.g. ‘Create a dashboard with a sidebar, charts, and a table’). I’ll produce a plan, deterministic code, and a preview — and you can iterate safely.",
-      ts: now(),
-    },
-  ]);
-
   const [prompt, setPrompt] = useState<string>(
     "A minimal support dashboard with a sidebar, KPIs, a trend chart and a table.",
   );
@@ -625,7 +576,6 @@ export default function UIStudio() {
   const [currentVersion, setCurrentVersion] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [stages, setStages] = useState<Stages>(IDLE_STAGES);
-  const [trace, setTrace] = useState<PlanTrace | null>(null);
   const [lastReply, setLastReply] = useState<string | null>(null);
 
   // The builder's choices. They compose a sentence which goes through the
@@ -650,23 +600,11 @@ export default function UIStudio() {
     setPrompt(composePrompt(nextSubject, nextParts, nextTone));
   }
 
-  const chatViewportRef = useRef<HTMLDivElement | null>(null);
-
-  function pushMessage(role: Role, content: string) {
-    setMessages((m) => [...m, { id: uid("m"), role, content: clampText(content, 3000), ts: now() }]);
-    setTimeout(() => {
-      const el = chatViewportRef.current;
-      if (!el) return;
-      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-    }, 50);
-  }
-
   function runAgent(userText: string, mode: "generate" | "modify") {
     setError(null);
     setStages({ ...IDLE_STAGES, planner: "running" });
 
     const { plan: nextPlan, trace } = planner(userText, mode === "modify" ? model.plan : undefined);
-    setTrace(trace);
     const validation = validatePlan(nextPlan);
 
     if (!validation.ok) {
@@ -674,7 +612,6 @@ export default function UIStudio() {
       setStages({ ...IDLE_STAGES, planner: "ok", validator: "blocked" });
       setError(validation.error);
       setLastReply(null);
-      pushMessage("assistant", `Blocked: ${validation.error}`);
       return;
     }
 
@@ -727,14 +664,9 @@ export default function UIStudio() {
     // nothing to someone who did not write this code.
     const summary = describePlan(nextPlan);
     setLastReply(`Built it. ${summary}`);
-    pushMessage("assistant", summary);
 
     // Only worth mentioning when enough was missed to explain a surprise.
     if (trace.ignored.length >= 2) {
-      pushMessage(
-        "assistant",
-        `I did not understand ${trace.ignored.slice(0, 6).join(", ")} — so nothing on screen came from those words.`,
-      );
     }
   }
 
@@ -753,10 +685,6 @@ export default function UIStudio() {
     setCurrentVersion(idx);
     setError(null);
     setStages({ planner: "ok", validator: "ok", generator: "ok", explainer: "ok" });
-    pushMessage(
-      "assistant",
-      `Went back to version ${idx + 1}: ${describePlan(entry.model.plan).toLowerCase()}`,
-    );
     setLastReply(`Restored version ${idx + 1}. ${describePlan(entry.model.plan)}`);
   }
 
@@ -766,79 +694,72 @@ export default function UIStudio() {
       data-testid="page-ui-studio"
     >
       <div className="relative border-b bg-card/70 backdrop-blur-sm">
-        <div className="mx-auto max-w-[1400px] px-4 py-6">
-          <div className="flex flex-wrap items-start justify-between gap-6" data-enter>
-            <div className="max-w-2xl">
+        <div className="mx-auto max-w-[1400px] px-4 py-5">
+          <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-4" data-enter>
+            <div className="min-w-0">
               <div className="flex items-center gap-2.5">
                 <span
-                  className="grid h-8 w-8 place-items-center rounded bg-primary text-primary-foreground"
+                  className="grid h-7 w-7 place-items-center rounded bg-primary text-primary-foreground"
                   aria-hidden="true"
                 >
-                  <Sparkles className="h-4 w-4" />
+                  <Sparkles className="h-3.5 w-3.5" />
                 </span>
                 <span className="ui-label">Prompt2UI</span>
               </div>
 
-              <h1 className="ui-title mt-4 text-3xl leading-[1.1] sm:text-4xl" data-testid="text-app-title">
-                Describe an interface.
-                <br />
-                Get the same one every time.
+              <h1 className="ui-title mt-2 text-2xl leading-tight sm:text-[28px]" data-testid="text-app-title">
+                Describe an interface. Get the same one every time.
               </h1>
 
-              <p className="mt-3 text-[15px] leading-relaxed text-muted-foreground" data-testid="text-app-subtitle">
-                The prompt chooses which approved components to use and how to configure them — it
-                never writes markup. Nine components are whitelisted; anything else is refused at
-                validation with a named error.
+              <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground" data-testid="text-app-subtitle">
+                The prompt picks which approved components to use — it never writes markup, so the
+                same words always produce the same screen.
               </p>
             </div>
 
-            <div className="flex flex-1 flex-col items-stretch gap-4 lg:max-w-sm">
-              <div className="flex items-center justify-end gap-2">
-                <Button
-                  variant="secondary"
-                  className="gap-2 ui-press"
-                  onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-                  data-testid="button-toggle-theme"
-                >
-                  <ShieldCheck className="h-4 w-4" />
-                  {theme === "light" ? "Dark" : "Light"}
-                </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                className="gap-2 ui-press"
+                onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
+                data-testid="button-toggle-theme"
+              >
+                <ShieldCheck className="h-3.5 w-3.5" />
+                {theme === "light" ? "Dark" : "Light"}
+              </Button>
 
-                <VersionDialog
-                  versions={versionItems}
-                  currentId={String(currentVersion)}
-                  onRestore={(id) => restoreByIndex(id)}
-                />
-              </div>
-
-              {/* The constraint is the product. Showing the whole allowed
-                  set is the most direct way to say what cannot happen. */}
-              <div className="rounded ui-inset-ring bg-card p-4" data-testid="panel-whitelist">
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="ui-label">Component whitelist</span>
-                  <span className="ui-mono text-xs tabular-nums text-muted-foreground">
-                    {ALLOWED_COMPONENTS.length} allowed
-                  </span>
-                </div>
-                <ul className="mt-3 flex flex-wrap gap-1.5">
-                  {ALLOWED_COMPONENTS.map((name) => (
-                    <li
-                      key={name}
-                      className="ui-mono rounded-sm bg-muted px-1.5 py-1 text-[11px] text-foreground/80"
-                    >
-                      {name}
-                    </li>
-                  ))}
-                </ul>
-                <p className="mt-3 text-xs leading-snug text-muted-foreground">
-                  Custom CSS is blocked. A model that cannot freestyle cannot hallucinate a broken
-                  layout.
-                </p>
-              </div>
+              <VersionDialog
+                versions={versionItems}
+                currentId={String(currentVersion)}
+                onRestore={(id) => restoreByIndex(id)}
+              />
             </div>
           </div>
 
-          <div className="mt-6">
+          {/* The whitelist is the product's constraint, so it stays on the
+              first screen - but as one compact strip, not a panel that
+              pushed the prompt box below the fold. */}
+          <div
+            className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-sm ui-inset-ring bg-card px-3 py-2"
+            data-testid="panel-whitelist"
+          >
+            <span className="ui-label">Whitelist · {ALLOWED_COMPONENTS.length}</span>
+            <ul className="flex flex-wrap gap-1">
+              {ALLOWED_COMPONENTS.map((name) => (
+                <li
+                  key={name}
+                  className="ui-mono rounded-sm bg-muted px-1.5 py-0.5 text-[10px] text-foreground/75"
+                >
+                  {name}
+                </li>
+              ))}
+            </ul>
+            <span className="ml-auto text-xs text-muted-foreground">
+              Anything else is refused at validation.
+            </span>
+          </div>
+          <div className="mt-4">
             <PipelineRail stages={stages} />
           </div>
 
@@ -883,7 +804,6 @@ export default function UIStudio() {
                     <Button
                       className="flex-1 gap-2 ui-press"
                       onClick={() => {
-                        pushMessage("user", prompt);
                         runAgent(prompt, "generate");
                       }}
                       data-testid="button-generate"
@@ -895,7 +815,6 @@ export default function UIStudio() {
                       variant="secondary"
                       className="gap-2 ui-press"
                       onClick={() => {
-                        pushMessage("user", prompt);
                         runAgent(prompt, "modify");
                       }}
                       title="Apply this prompt on top of what is already on screen"
