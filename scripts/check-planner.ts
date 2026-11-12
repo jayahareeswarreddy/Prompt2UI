@@ -32,3 +32,13 @@ const generic = planner("dashboard with charts").plan;
 console.log(
   `generic-chart:  ${generic.components.includes("LineChartCard") ? "PASS" : "FAIL"} (${generic.components.join(", ")})`,
 );
+
+// Colour: "in yellow" used to be dropped silently.
+const yellow = planner("a support dashboard with a table in yellow color").plan;
+console.log(
+  `colour-yellow:  ${yellow.accent?.name === "yellow" ? "PASS" : "FAIL"} (${yellow.accent?.name ?? "none"})`,
+);
+const noColour = planner("a support dashboard with a table").plan;
+console.log(`colour-absent:  ${noColour.accent === undefined ? "PASS" : "FAIL"}`);
+const ignored = planner("a dashboard in yellow colour").trace.ignored;
+console.log(`colour-not-ignored: ${!ignored.includes("yellow") ? "PASS" : "FAIL"} (${ignored.join(", ") || "-"})`);

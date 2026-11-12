@@ -27,6 +27,8 @@ export type UIPlan = {
   layout: "dashboard" | "landing" | "settings";
   tone: "minimal" | "bold" | "playful" | "enterprise";
   domain: string;
+  /** Accent asked for in the prompt, as an HSL triple. */
+  accent?: { name: string; hsl: string };
   components: ComponentName[];
   content: {
     title: string;
@@ -458,6 +460,28 @@ const STOP_WORDS = new Set(
     "using use like new simple one two three four five").split(" "),
 );
 
+/**
+ * Colours the planner can act on.
+ *
+ * Asking for "in yellow" is one of the most natural things to say about an
+ * interface, and the planner used to drop it silently - the screen came
+ * back in the default accent with no explanation.
+ */
+export const COLOURS: Array<{ name: string; hsl: string; terms: string[] }> = [
+  { name: "yellow", hsl: "48 96% 45%", terms: ["yellow", "gold", "golden"] },
+  { name: "amber", hsl: "35 92% 48%", terms: ["amber", "orange"] },
+  { name: "red", hsl: "0 72% 48%", terms: ["red", "crimson", "scarlet"] },
+  { name: "pink", hsl: "330 78% 52%", terms: ["pink", "magenta", "rose"] },
+  { name: "purple", hsl: "272 60% 52%", terms: ["purple", "violet", "lilac"] },
+  { name: "indigo", hsl: "232 62% 50%", terms: ["indigo", "navy"] },
+  { name: "blue", hsl: "212 88% 44%", terms: ["blue", "azure", "sky"] },
+  { name: "teal", hsl: "185 85% 30%", terms: ["teal", "turquoise", "cyan"] },
+  { name: "green", hsl: "150 70% 32%", terms: ["green", "emerald", "mint"] },
+  { name: "brown", hsl: "25 45% 38%", terms: ["brown", "tan", "sepia"] },
+  { name: "grey", hsl: "215 12% 42%", terms: ["grey", "gray", "slate", "monochrome"] },
+  { name: "black", hsl: "0 0% 12%", terms: ["black", "ink"] },
+];
+
 const NEGATION = /\b(no|not|without|hide|remove|exclude|drop|omit|skip)\b/;
 
 /**
@@ -472,9 +496,13 @@ const VOCAB_WORDS: Set<string> = new Set(
     ...COMPONENT_VOCAB.flatMap((v) => v.terms),
     ...TONE_VOCAB.flatMap((v) => v.terms),
     ...LAYOUT_VOCAB.flatMap((v) => v.terms),
+    ...COLOURS.flatMap((c) => c.terms),
   ]
     .flatMap((term) => term.split(" "))
-    .concat(["tone", "kpis", "kpi", "chart", "charts", "title", "name", "called"]),
+    .concat([
+      "tone", "kpis", "kpi", "chart", "charts", "title", "name", "called",
+      "colour", "color", "coloured", "colored",
+    ]),
 );
 
 // ---------------------------------------------------------------------------
@@ -607,6 +635,19 @@ export function planner(userText: string, prev?: UIPlan): { plan: UIPlan; trace:
     }
   }
 
+  // --- colour -------------------------------------------------------------
+  let accent: UIPlan["accent"] = prev?.accent;
+  outerColour: for (const colour of COLOURS) {
+    for (const term of colour.terms) {
+      if (text.includes(` ${term}`)) {
+        accent = { name: colour.name, hsl: colour.hsl };
+        understood.push({ term, effect: `accent → ${colour.name}` });
+        consumed.push(term, "colour", "color", "coloured", "colored");
+        break outerColour;
+      }
+    }
+  }
+
   // --- explicit title -----------------------------------------------------
   let title = domain.title;
   const titleMatch = userText.match(/(?:title|name|call(?:ed)?|heading)\s*[:=-]?\s*["“']?([^"”'\n]{2,60})/i);
@@ -635,6 +676,7 @@ export function planner(userText: string, prev?: UIPlan): { plan: UIPlan; trace:
     layout,
     tone,
     domain: domain.id,
+    accent,
     components: ALLOWED_COMPONENTS.filter((c) => chosen.has(c)),
     content: {
       title,
@@ -701,6 +743,7 @@ export function composePrompt(
   subjectId: string | null,
   parts: ComponentName[],
   tone: UIPlan["tone"],
+  colourName?: string | null,
 ): string {
   const subject = SUBJECTS.find((s) => s.id === subjectId);
   const chosen = PARTS.filter((p) => parts.includes(p.component)).map((p) => p.word);
@@ -712,7 +755,8 @@ export function composePrompt(
         ? ` with ${chosen[0]}`
         : ` with ${chosen.slice(0, -1).join(", ")} and ${chosen[chosen.length - 1]}`;
   const article = /^[aeiou]/.test(tone) ? "An" : "A";
-  return `${article} ${tone} ${subjectWord}dashboard${list}.`;
+  const colour = colourName ? ` in ${colourName}` : "";
+  return `${article} ${tone} ${subjectWord}dashboard${list}${colour}.`;
 }
 
 /** A sentence a person would say about what was built. */
@@ -730,5 +774,6 @@ export function describePlan(plan: UIPlan): string {
     names.length === 1
       ? names[0]
       : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-  return `A ${what} with ${list}.`;
+  const colour = plan.accent ? `, in ${plan.accent.name}` : "";
+  return `A ${what} with ${list}${colour}.`;
 }

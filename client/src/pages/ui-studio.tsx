@@ -16,6 +16,7 @@ import {
   PARTS,
   SUBJECTS,
   TONES,
+  COLOURS,
   composePrompt,
   describePlan,
   planner,
@@ -136,7 +137,7 @@ function seededSeries(seed: string, count: number): number[] {
   return out;
 }
 
-function MiniChart({ kind, seed }: { kind: "line" | "bar"; seed: string }) {
+function MiniChart({ kind, seed, colour }: { kind: "line" | "bar"; seed: string; colour: string }) {
   const count = kind === "line" ? 16 : 7;
   const values = seededSeries(seed, count);
   const w = 320;
@@ -159,7 +160,7 @@ function MiniChart({ kind, seed }: { kind: "line" | "bar"; seed: string }) {
               width={slot * 0.64}
               height={bh}
               rx="1"
-              className="fill-accent"
+              fill={colour}
               opacity={0.55 + (i % 3) * 0.15}
             />
           );
@@ -176,11 +177,11 @@ function MiniChart({ kind, seed }: { kind: "line" | "bar"; seed: string }) {
   return (
     <svg viewBox={`0 0 ${w} ${h}`} className="h-36 w-full" role="img"
          aria-label={`Line chart with ${values.length} points`} data-testid="svg-line">
-      <polygon points={area} className="fill-primary" opacity="0.12" />
+      <polygon points={area} fill={colour} opacity="0.14" />
       <polyline points={line} fill="none" strokeWidth="2" strokeLinejoin="round"
-                strokeLinecap="round" className="stroke-primary" />
+                strokeLinecap="round" stroke={colour} />
       {pts.map((pt, i) => (
-        <circle key={i} cx={pt[0]} cy={pt[1]} r="2" className="fill-primary" opacity="0.8" />
+        <circle key={i} cx={pt[0]} cy={pt[1]} r="2" fill={colour} opacity="0.85" />
       ))}
     </svg>
   );
@@ -192,6 +193,9 @@ function PreviewMock({ model }: { model: UIModel }) {
   // AppShell and TopNav draw chrome, not content. A plan holding only
   // those rendered a completely blank panel, which is what made a
   // restored early version look like a broken rollback.
+  // Falls back to the app's own primary when the prompt named no colour.
+  const accent = plan.accent ? `hsl(${plan.accent.hsl})` : "hsl(var(--primary))";
+
   const BODY_COMPONENTS = ["KPIGrid", "LineChartCard", "BarChartCard", "DataTable", "EmptyState"];
   const hasBody = plan.components.some((c) => BODY_COMPONENTS.includes(c));
 
@@ -210,6 +214,7 @@ function PreviewMock({ model }: { model: UIModel }) {
   return (
     <div
       className={cn("rounded ui-surface ui-inset-ring overflow-hidden", "min-h-[520px]")}
+      style={{ borderTop: `3px solid ${accent}` }}
       data-testid="preview-root"
     >
       <div className={cn("p-4 border-b", toneClasses)}>
@@ -240,7 +245,7 @@ function PreviewMock({ model }: { model: UIModel }) {
           className="flex items-center gap-2 border-b px-4 py-2.5"
           data-testid="panel-topnav"
         >
-          <span className="h-2.5 w-2.5 rounded-full bg-primary" aria-hidden="true" />
+          <span className="h-2.5 w-2.5 rounded-full" style={{ background: accent }} aria-hidden="true" />
           {/* Nav links, not the title again - the panel header above already
               says what this screen is. */}
           <span className="flex flex-wrap gap-3 text-xs text-muted-foreground">
@@ -310,13 +315,13 @@ function PreviewMock({ model }: { model: UIModel }) {
             {plan.components.includes("LineChartCard") ? (
               <div className="rounded ui-inset-ring bg-card/70 p-3" data-testid="card-line-chart">
                 <div className="text-sm font-medium mb-2">{plan.content.lineTitle ?? "Trend"}</div>
-                <MiniChart kind="line" seed={`${plan.domain}-line`} />
+                <MiniChart kind="line" seed={`${plan.domain}-line`} colour={accent} />
               </div>
             ) : null}
             {plan.components.includes("BarChartCard") ? (
               <div className="rounded ui-inset-ring bg-card/70 p-3" data-testid="card-bar-chart">
                 <div className="text-sm font-medium mb-2">{plan.content.barTitle ?? "Breakdown"}</div>
-                <MiniChart kind="bar" seed={`${plan.domain}-bar`} />
+                <MiniChart kind="bar" seed={`${plan.domain}-bar`} colour={accent} />
               </div>
             ) : null}
           </div>
@@ -588,16 +593,51 @@ export default function UIStudio() {
     "DataTable",
   ]);
   const [toneChoice, setToneChoice] = useState<UIPlan["tone"]>("minimal");
+  const [colourChoice, setColourChoice] = useState<string | null>(null);
   /** A shortcut rewrites the prompt box, so the prompt stays the one input. */
+  /** True while the prompt box still matches what the shortcuts composed. */
+  const chipsOwnPrompt = prompt === composePrompt(subject, parts, toneChoice, colourChoice);
+
   function applyChoice(
     nextSubject: string | null,
     nextParts: ComponentName[],
     nextTone: UIPlan["tone"],
+    nextColour: string | null = colourChoice,
   ) {
     setSubject(nextSubject);
     setParts(nextParts);
     setToneChoice(nextTone);
-    setPrompt(composePrompt(nextSubject, nextParts, nextTone));
+    setColourChoice(nextColour);
+
+    if (chipsOwnPrompt) {
+      setPrompt(composePrompt(nextSubject, nextParts, nextTone, nextColour));
+      return;
+    }
+
+    // The prompt has been hand-written. Rewriting it from the chips would
+    // throw the user's own words away, so edit what is there instead.
+    setPrompt((current) => {
+      let next = current.trimEnd().replace(/[.\s]+$/, "");
+      if (nextColour !== colourChoice) {
+        next = next.replace(/\s+in\s+\w+(\s+colou?r)?$/i, "");
+        if (nextColour) next += ` in ${nextColour}`;
+      }
+      const addedPart = nextParts.find((c) => !parts.includes(c));
+      if (addedPart) {
+        const word = PARTS.find((x) => x.component === addedPart)?.word;
+        if (word && !next.toLowerCase().includes(word)) next += `, with ${word}`;
+      }
+      const dropped = parts.find((c) => !nextParts.includes(c));
+      if (dropped) {
+        const label = PARTS.find((x) => x.component === dropped)?.label.toLowerCase();
+        if (label) next += `, no ${label}`;
+      }
+      const subjectWord = SUBJECTS.find((x) => x.id === nextSubject)?.word;
+      if (nextSubject && nextSubject !== subject && subjectWord && !next.toLowerCase().includes(subjectWord)) {
+        next += `, for ${subjectWord}`;
+      }
+      return `${next}.`;
+    });
   }
 
   function runAgent(userText: string, mode: "generate" | "modify") {
@@ -789,9 +829,10 @@ export default function UIStudio() {
                       setPrompt(next);
                       // Typing by hand means the shortcuts no longer describe
                       // what is in the box, so they stop claiming to.
-                      if (next !== composePrompt(subject, parts, toneChoice)) {
+                      if (next !== composePrompt(subject, parts, toneChoice, colourChoice)) {
                         setSubject(null);
                         setParts([]);
+                        setColourChoice(null);
                       }
                     }}
                     placeholder="a support desk with open tickets and a bar chart, no sidebar"
@@ -936,12 +977,47 @@ export default function UIStudio() {
                     </div>
 
                     <div>
+                      <div className="ui-label mb-2">Colour</div>
+                      <div className="flex flex-wrap gap-1.5" data-testid="list-colours">
+                        {COLOURS.map((c) => (
+                          <button
+                            key={c.name}
+                            type="button"
+                            onClick={() =>
+                              applyChoice(
+                                subject,
+                                parts,
+                                toneChoice,
+                                colourChoice === c.name ? null : c.name,
+                              )
+                            }
+                            className={cn(
+                              "flex items-center gap-1.5 rounded-sm px-2 py-1 text-xs capitalize transition-colors ui-inset-ring",
+                              colourChoice === c.name
+                                ? "bg-primary/12 text-foreground"
+                                : "bg-card text-muted-foreground hover:bg-muted hover:text-foreground",
+                            )}
+                            aria-pressed={colourChoice === c.name}
+                            data-testid={`chip-colour-${c.name}`}
+                          >
+                            <span
+                              className="h-2.5 w-2.5 rounded-full"
+                              style={{ background: `hsl(${c.hsl})` }}
+                              aria-hidden="true"
+                            />
+                            {c.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
                       <div className="ui-label mb-2">Phrases it knows</div>
                       <p className="text-xs leading-relaxed text-muted-foreground">
                         Say <em>no sidebar</em> or <em>without charts</em> to leave something out.
-                        Say <em>title: Bloom Store</em> to name it. Subjects it recognises include
-                        sales, tickets, users, orders, invoices, patients, students, deliveries,
-                        campaigns, servers and sprints.
+                        Say <em>title: Bloom Store</em> to name it, or <em>in yellow</em> to set the
+                        accent. Subjects it recognises include sales, tickets, users, orders,
+                        invoices, patients, students, deliveries, campaigns, servers and sprints.
                       </p>
                     </div>
                   </div>
