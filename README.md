@@ -60,7 +60,7 @@ from the prompt, and you can pin a heading explicitly with `title:` or `name:`.
 
 ## Tech stack
 
-- **Frontend:** React 18, TypeScript, Vite, Tailwind CSS, Radix UI primitives, wouter
+- **Frontend:** React 19, TypeScript, Vite, Tailwind CSS, Radix UI primitives, wouter
   for routing, TanStack Query for client state
 - **Server:** Node.js, Express, TypeScript — bundled with esbuild for fast cold starts
 - **Build:** a single `script/build.ts` that runs the Vite client build and the esbuild
